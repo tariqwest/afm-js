@@ -9,19 +9,19 @@ Provides both a CLI matching Apple's `fm` terminal client semantics and a standa
 ## Architecture
 
 ```
-┌──────────────────────────────────────────────────────────────────────┐
-│  afm-js (Node 20+, TypeScript)                                       │
-│                                                                      │
+┌─────────────────────────────────────────────────────────────────────┐
+│  afm-js (Node 20+, TypeScript)                                      │
+│                                                                     │
 │  ┌──────────────────────────────────────────────────────────────┐   │
 │  │  @afm-js/server (Hono + Node)                                │   │
 │  │  /v1/chat/completions  /v1/models  /health                   │   │
 │  └──────────────────────────┬───────────────────────────────────┘   │
-│                             │                                        │
-│                   UnifiedBackend (auto-selects)                      │
-│                   FmSocketClient ← same protocol for both            │
+│                             │                                       │
+│                   UnifiedBackend (auto-selects)                     │
+│                   FmSocketClient (per-request)                      │
 │                   ┌─────────┴──────────┐                            │
-│                   │                    │                             │
-│                   ▼                    ▼                             │
+│                   │                    │                            │
+│                   ▼                    ▼                            │
 │  ┌─────────────────────┐  ┌────────────────────────────┐            │
 │  │  HelperProcessMgr   │  │  FmProcessManager          │            │
 │  │  (backend A)        │  │  (backend B)               │            │
@@ -29,24 +29,25 @@ Provides both a CLI matching Apple's `fm` terminal client semantics and a standa
 │  │  HTTP/1.1 over      │  │  HTTP/1.1 over             │            │
 │  │  Unix socket        │  │  Unix socket               │            │
 │  └──────────┬──────────┘  └──────────────┬─────────────┘            │
-└─────────────┼──────────────────────────── ┼────────────────────────┘
-              ▼                             ▼
+└─────────────┼────────────────────────────┼──────────────────────────┘
+              ▼                            ▼
 ┌─────────────────────────┐   ┌─────────────────────────────────────┐
-│  afm-fm-helper          │   │  Apple fm daemon (system)           │
-│  (Swift, macOS 26+)     │   │  /usr/bin/fm serve --socket         │
+│  afm-fm-helper          │   │  Apple fm daemon                    │
+│  (Swift, macOS 26+)     │   │  (System, macOS 27+)                │
 │                         │   │                                     │
-│  serve --socket <path>  │   │  FoundationModels API:              │
-│  FoundationModels API:  │   │    SystemLanguageModel              │
-│    SystemLanguageModel  │   │    PrivateCloudComputeLanguageModel │
-│    LanguageModelSession │   │    LanguageModelSession             │
+│  serve --socket <path>  │   │  /usr/bin/fm serve --socket <path>  │
 │                         │   │                                     │
-│  ⚠ on-device only;      │   │  ✓ supports PCC (system-signed)    │
-│    PCC requires Apple   │   │                                     │
+│  FoundationModels API:  │   │  FoundationModels API:              │
+│    SystemLanguageModel  │   │    SystemLanguageModel              │
+│    LanguageModelSession │   │    PrivateCloudComputeLanguageModel │
+│                         │   │    LanguageModelSession             │
+│  ⚠ on-device only;      │   │                                     │
+│    PCC requires Apple   │   │  ✓ supports PCC (system-signed)     │
 │    dev entitlement      │   │                                     │
 └─────────────────────────┘   └─────────────────────────────────────┘
 ```
 
-**Swift Helper:** `afm-fm-helper` is a backend implementing the Apple-approved way to use `FoundationModels` in 3rd party apps. It is spawned by Node as `afm-fm-helper serve --socket <path>` and serves an OpenAI-compatible HTTP/1.1 API over a Unix domain socket — the same transport used by `/usr/bin/fm`. Both backends are therefore accessed identically by `UnifiedBackend` via `FmSocketClient`. As of today (2026/6/15), it will not work with PCC as the binary needs to be signed by an Apple developer ID with a specific PCC entitlement. This will be updated once Apple approves the necessary entitlements.
+**Swift Helper:** `afm-fm-helper` implements the official, Apple-approved way to use `FoundationModels` in 3rd-party apps. It is spawned by the main server process and serves an OpenAI-compatible HTTP/1.1 API over a Unix domain socket, mirroring how Apple's own `fm` daemon and client work. Currently, the helper backend will not work with PCC as the binary needs to be signed by an Apple developer ID with a specific PCC entitlement. This will be updated once Apple approves the necessary entitlements for this author's developer id. In the meantime, if you have an apple developer account you can build and sign the helper binary yourself for use on your local machine.
 
 ## Installation
 

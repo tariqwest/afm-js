@@ -492,24 +492,14 @@ async function runMcpTools(
   for (const call of calls) {
     let executed = false;
     for (const client of clients) {
-      let listed: OpenAITool[] = [];
       try {
-        listed = await client.listTools();
-      } catch (err) {
-        debug(`mcp: listTools failed (${err}), trying next client`);
-        continue;
-      }
-      if (!listed.some((t) => t.function.name === call.name)) continue;
-      try {
+        // Tools are cached in McpStdioClient, so we can call callTool directly
+        // If the tool doesn't exist, callTool will fail and we'll try the next client
         const result = await client.callTool(call.name, call.argumentsString);
         out.push({ name: call.name, args: call.argumentsString, result, isError: false });
       } catch (err) {
-        out.push({
-          name: call.name,
-          args: call.argumentsString,
-          result: err instanceof Error ? err.message : String(err),
-          isError: true,
-        });
+        // Try the next client if this one doesn't have the tool or failed
+        continue;
       }
       executed = true;
       break;

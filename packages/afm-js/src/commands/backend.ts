@@ -49,12 +49,12 @@ export async function createBackend(helperOverride?: string): Promise<BackendHan
   }
 
   if (detected.kind === "fm") {
-    const client = new FmSocketClient(detected.process.socketPath);
+    const client = new FmSocketClient(detected.manager.getSocketPath());
     await client.connect();
     const backend = new UnifiedBackend({
       kind: "fm",
       fmClient: client,
-      processManager: new FmProcessManager(detected.process.socketPath),
+      processManager: detected.manager,
     });
     return { backend, shutdown: () => backend.shutdown() };
   } else {

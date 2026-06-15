@@ -14,7 +14,7 @@ export type BackendKind = "fm" | "helper";
 
 export interface FmBackend {
   kind: "fm";
-  process: FmProcess;
+  manager: FmProcessManager;
 }
 
 export interface HelperBackend {
@@ -106,7 +106,7 @@ async function spawnFm(socketPath?: string): Promise<FmBackend> {
 
   return {
     kind: "fm",
-    process: proc,
+    manager,
   };
 }
 

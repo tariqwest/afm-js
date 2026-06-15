@@ -31,6 +31,10 @@ export const serveCommand = defineCommand({
       type: "boolean",
       description: "Verbose debug logging to stderr.",
     },
+    backend: {
+      type: "string",
+      description: "Force backend: 'fm' for /usr/bin/fm CLI, 'helper' for afm-fm-helper (default: auto-detect).",
+    },
     helper: {
       type: "string",
       description: "Override the afm-fm-helper binary path (defaults to bundled prebuilt).",
@@ -60,6 +64,7 @@ export const serveCommand = defineCommand({
       token: (args.token as string | undefined) ?? null,
       mcpServers,
       debug: debugFn,
+      backend: args.backend ? { force: args.backend as "fm" | "helper" } : undefined,
     });
 
     process.stdout.write(

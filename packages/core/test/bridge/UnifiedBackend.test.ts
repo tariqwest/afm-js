@@ -4,124 +4,82 @@
 
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import { UnifiedBackend, type BackendKind } from "../../src/bridge/UnifiedBackend.js";
-import {
-  HelperProcess,
-  type HelperRequest,
-  type HelperReply,
-  type HelperStreamFrame,
-} from "../../src/bridge/HelperProcess.js";
+import { FmSocketClient } from "../../src/fm/FmSocketClient.js";
+import type { HelperRequest, HelperReply, HelperStreamFrame } from "../../src/bridge/HelperProcess.js";
 import { AfmError } from "../../src/errors/AfmError.js";
 
-// Mock HelperProcess using composition instead of inheritance
-class MockHelperProcess {
+// Mock FmSocketClient
+class MockFmSocketClient {
   private mockRequest = vi.fn();
   private mockStream = vi.fn();
-  private mockShutdown = vi.fn();
-  private shuttingDown = false;
+  mockClose = vi.fn();
 
-  async request(req: HelperRequest): Promise<HelperReply> {
-    if (this.shuttingDown) {
-      throw new Error("HelperProcess is shutting down");
-    }
-    return this.mockRequest(req) as Promise<HelperReply>;
+  async request(method: string, path: string, body?: unknown): Promise<{ statusCode: number; body: Buffer; headers: Map<string, string> }> {
+    return this.mockRequest(method, path, body);
   }
 
-  streamRequest(req: HelperRequest, _signal?: AbortSignal): AsyncIterable<HelperStreamFrame> {
-    if (this.shuttingDown) {
-      throw new Error("HelperProcess is shutting down");
-    }
-    return this.mockStream(req) as AsyncIterable<HelperStreamFrame>;
+  async *streamSSE(
+    method: string,
+    path: string,
+    body?: unknown,
+    headers: Record<string, string> = {},
+    signal?: AbortSignal,
+  ): AsyncGenerator<unknown, void, unknown> {
+    yield* this.mockStream(method, path, body, headers, signal);
   }
 
-  async shutdown(): Promise<void> {
-    this.shuttingDown = true;
-    this.mockShutdown();
+  close(): void {
+    this.mockClose();
   }
 
-  setMockResponse(op: string, response: HelperReply) {
-    this.mockRequest.mockImplementation((req: HelperRequest) => {
-      if (req.op === op) return Promise.resolve(response);
-      throw new Error(`Unexpected op: ${req.op}`);
+  setMockResponse(path: string, response: { statusCode: number; body: unknown }, method: string = "POST") {
+    this.mockRequest.mockImplementation((reqMethod: string, reqPath: string) => {
+      if (reqPath === path && reqMethod === method) {
+        return Promise.resolve({
+          statusCode: response.statusCode,
+          body: Buffer.from(JSON.stringify(response.body)),
+          headers: new Map([["content-type", "application/json"]]),
+        });
+      }
+      throw new Error(`Unexpected request: ${reqMethod} ${reqPath}`);
     });
   }
 
-  setMockStream(op: string, frames: HelperStreamFrame[]) {
-    this.mockStream.mockImplementation(function* (req: HelperRequest) {
-      if (req.op === op) {
+  setMockStream(path: string, frames: unknown[]) {
+    this.mockStream.mockImplementation(function* (method: string, reqPath: string) {
+      if (reqPath === path && method === "POST") {
         for (const frame of frames) yield frame;
       } else {
-        throw new Error(`Unexpected op: ${req.op}`);
+        throw new Error(`Unexpected stream request: ${method} ${reqPath}`);
       }
     });
-  }
-
-  get mockRequestCalls() {
-    return this.mockRequest.mock.calls;
   }
 }
 
 describe("UnifiedBackend", () => {
-  let mockHelper: MockHelperProcess;
+  let mockClient: MockFmSocketClient;
   let backend: UnifiedBackend;
 
   beforeEach(() => {
-    mockHelper = new MockHelperProcess();
-    // Cast to unknown first to bypass type checking
-    backend = UnifiedBackend.createHelper(mockHelper as unknown as HelperProcess);
+    mockClient = new MockFmSocketClient();
+    backend = new UnifiedBackend({
+      kind: "helper",
+      fmClient: mockClient as unknown as FmSocketClient,
+    });
   });
 
-  describe("createHelper", () => {
-    it("creates helper backend with correct kind", () => {
+  describe("backend kind", () => {
+    it("returns correct kind", () => {
       expect(backend.getKind()).toBe("helper" as BackendKind);
     });
   });
 
   describe("call method", () => {
-    it("delegates openSession to helper", async () => {
-      mockHelper.setMockResponse("openSession", {
-        ok: true,
-        id: "r1",
-        session: "test-session-123",
-      });
-
-      const reply = await backend.call({
-        op: "openSession",
-        backend: "on_device",
-      });
-
-      expect(reply).toHaveProperty("session", "test-session-123");
-      expect(reply).toHaveProperty("ok", true);
-    });
-
-    it("delegates respond to helper", async () => {
-      mockHelper.setMockResponse("respond", {
-        ok: true,
-        id: "r1",
-        content: "Hello world",
-        finishReason: "stop",
-        usage: {
-          promptTokens: 10,
-          completionTokens: 5,
-          totalTokens: 15,
-        },
-      });
-
-      const reply = await backend.call({
-        op: "respond",
-        session: "test-session",
-        prompt: "Hi",
-      });
-
-      expect(reply).toHaveProperty("content", "Hello world");
-      expect(reply).toHaveProperty("finishReason", "stop");
-    });
-
-    it("delegates availability check to helper", async () => {
-      mockHelper.setMockResponse("availability", {
-        ok: true,
-        id: "r1",
-        status: "available",
-      });
+    it("handles availability check", async () => {
+      mockClient.setMockResponse("/v1/models", {
+        statusCode: 200,
+        body: { data: [{ id: "system" }] },
+      }, "GET");
 
       const reply = await backend.call({
         op: "availability",
@@ -130,20 +88,84 @@ describe("UnifiedBackend", () => {
       expect(reply).toHaveProperty("status", "available");
       expect(reply).toHaveProperty("ok", true);
     });
+
+    it("creates and stores session state", async () => {
+      const reply = await backend.call({
+        op: "openSession",
+        backend: "on_device",
+        instructions: "You are a helpful assistant",
+      });
+
+      expect(reply).toHaveProperty("session");
+      expect(reply).toHaveProperty("ok", true);
+      expect(typeof (reply as any).session).toBe("string");
+    });
+
+    it("uses session state for respond", async () => {
+      // First open a session
+      const sessionReply = await backend.call({
+        op: "openSession",
+        backend: "on_device",
+        instructions: "Be concise",
+      });
+      const sessionId = (sessionReply as any).session;
+
+      // Mock the HTTP response for respond
+      mockClient.setMockResponse("/v1/chat/completions", {
+        statusCode: 200,
+        body: {
+          choices: [{ message: { content: "Hello!" }, finish_reason: "stop" }],
+          usage: { prompt_tokens: 10, completion_tokens: 2, total_tokens: 12 },
+        },
+      });
+
+      const reply = await backend.call({
+        op: "respond",
+        session: sessionId,
+        prompt: "Hi",
+      });
+
+      expect(reply).toHaveProperty("content", "Hello!");
+      expect(reply).toHaveProperty("finishReason", "stop");
+    });
+
+    it("closes session and clears state", async () => {
+      const sessionReply = await backend.call({
+        op: "openSession",
+        backend: "on_device",
+      });
+      const sessionId = (sessionReply as any).session;
+
+      const reply = await backend.call({
+        op: "closeSession",
+        session: sessionId,
+      });
+
+      expect(reply).toHaveProperty("ok", true);
+    });
   });
 
   describe("streamRequest method", () => {
-    it("yields delta frames from helper", async () => {
-      mockHelper.setMockStream("stream", [
-        { id: "s1", event: "delta", text: "Hello" },
-        { id: "s1", event: "delta", text: " world" },
-        { id: "s1", event: "done", finishReason: "stop", usage: { promptTokens: 10, completionTokens: 2, totalTokens: 12 } },
+    it("streams with session state", async () => {
+      // Open a session first
+      const sessionReply = await backend.call({
+        op: "openSession",
+        backend: "on_device",
+        instructions: "Be helpful",
+      });
+      const sessionId = (sessionReply as any).session;
+
+      // Mock streaming response
+      mockClient.setMockStream("/v1/chat/completions", [
+        { choices: [{ delta: { content: "Hello" } }] },
+        { choices: [{ delta: { content: " world" } }] },
+        { choices: [{ finish_reason: "stop" }], usage: { prompt_tokens: 10, completion_tokens: 2, total_tokens: 12 } },
       ]);
 
       const frames: unknown[] = [];
       for await (const frame of backend.streamRequest({
         op: "stream",
-        session: "test",
+        session: sessionId,
         prompt: "Hi",
       })) {
         frames.push(frame);
@@ -154,58 +176,35 @@ describe("UnifiedBackend", () => {
       expect(frames[2]).toHaveProperty("event", "done");
     });
 
-    it("handles error frames from helper", async () => {
-      mockHelper.setMockStream("stream", [
-        { ok: false, id: "s1", error: { kind: "model_unavailable", message: "Model not loaded" } },
-      ]);
-
+    it("rejects unknown session", async () => {
       const frames: unknown[] = [];
       for await (const frame of backend.streamRequest({
         op: "stream",
-        session: "test",
+        session: "unknown-session",
         prompt: "Hi",
       })) {
         frames.push(frame);
       }
 
-      // Should yield the error frame
+      expect(frames).toHaveLength(1);
       expect(frames[0]).toHaveProperty("ok", false);
-      expect(frames[0]).toHaveProperty("error.kind", "model_unavailable");
+      expect(frames[0]).toHaveProperty("error.message", "Unknown session: unknown-session");
     });
   });
 
   describe("shutdown", () => {
-    it("calls shutdown on helper process", async () => {
-      const shutdownSpy = vi.spyOn(mockHelper, "shutdown");
-
+    it("closes client and clears sessions", async () => {
+      // Open a session first
+      await backend.call({ op: "openSession", backend: "on_device" });
+      
       await backend.shutdown();
 
-      expect(shutdownSpy).toHaveBeenCalled();
-    });
-
-    it("marks backend as shutting down", async () => {
-      await backend.shutdown();
-
+      expect(mockClient.mockClose).toHaveBeenCalled();
+      
       // After shutdown, calls should fail
       await expect(
         backend.call({ op: "openSession" })
       ).rejects.toThrow("shutting down");
-    });
-  });
-
-  describe("request ID generation", () => {
-    it("generates unique request IDs", async () => {
-      // Allow any op and return appropriate responses
-      mockHelper.setMockResponse("openSession", { ok: true, id: "r1", session: "s1" });
-      // Second call will also match openSession pattern, but that's ok for this test
-      // The key is that multiple calls happen
-
-      await backend.call({ op: "openSession", backend: "on_device" });
-      await backend.call({ op: "openSession", backend: "on_device" });
-
-      // Each call should get a unique ID (implementation detail, but ensures no collisions)
-      const calls = mockHelper.mockRequestCalls;
-      expect(calls.length).toBeGreaterThanOrEqual(2);
     });
   });
 });

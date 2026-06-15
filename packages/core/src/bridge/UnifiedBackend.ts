@@ -36,6 +36,7 @@ export class UnifiedBackend {
   private debug: (msg: string) => void;
   private nextId = 0;
   private sessionCounter = 0;
+  private sessions = new Map<string, { backend: "on_device" | "pcc"; instructions?: string }>();
   private shuttingDown = false;
 
   constructor(opts: UnifiedBackendOptions) {
@@ -104,6 +105,7 @@ export class UnifiedBackend {
 
   async shutdown(): Promise<void> {
     this.shuttingDown = true;
+    this.sessions.clear();
     this.fmClient.close();
     await this.processManager?.shutdown();
   }
@@ -121,17 +123,26 @@ export class UnifiedBackend {
       }
 
       case "openSession": {
-        // Both backends are stateless at the HTTP level; sessions are tracked here
         const session = `s${++this.sessionCounter}`;
+        this.sessions.set(session, {
+          backend: req.backend ?? "on_device",
+          instructions: req.instructions,
+        });
         return { ok: true, id, session } satisfies HelperOkOpenSession;
       }
 
       case "respond": {
         if (!req.prompt) return this.makeError(id, "decodingFailure", "Missing prompt");
-        const model = req.backend === "pcc" ? "pcc" : "system";
+        const sessionState = req.session ? this.sessions.get(req.session) : undefined;
+        if (req.session && !sessionState && !req.backend && !req.instructions) {
+          return this.makeError(id, "unknown", `Unknown session: ${req.session}`);
+        }
+        const backend = req.backend ?? sessionState?.backend ?? "on_device";
+        const instructions = req.instructions ?? sessionState?.instructions;
+        const model = backend === "pcc" ? "pcc" : "system";
         const response = await this.fmClient.request("POST", "/v1/chat/completions", {
           model,
-          messages: [{ role: "user", content: req.prompt }],
+          messages: this.buildMessages(req.prompt, instructions),
           temperature: req.options?.temperature,
           max_tokens: req.options?.maxTokens,
           seed: req.options?.seed,
@@ -152,6 +163,10 @@ export class UnifiedBackend {
       }
 
       case "closeSession":
+        if (req.session) {
+          this.sessions.delete(req.session);
+        }
+        return { ok: true, id } satisfies HelperOkSimple;
       case "shutdown":
         return { ok: true, id } satisfies HelperOkSimple;
 
@@ -174,28 +189,57 @@ export class UnifiedBackend {
       return;
     }
 
-    const model = req.backend === "pcc" ? "pcc" : "system";
+    const sessionState = req.session ? this.sessions.get(req.session) : undefined;
+    if (req.session && !sessionState && !req.backend && !req.instructions) {
+      yield this.makeStreamError(id, "unknown", `Unknown session: ${req.session}`);
+      return;
+    }
+    const backend = req.backend ?? sessionState?.backend ?? "on_device";
+    const instructions = req.instructions ?? sessionState?.instructions;
+    const model = backend === "pcc" ? "pcc" : "system";
     const abortController = new AbortController();
-    if (signal) signal.addEventListener("abort", () => abortController.abort(), { once: true });
+    let abortListener: (() => void) | null = null;
+    if (signal) {
+      abortListener = () => abortController.abort();
+      signal.addEventListener("abort", abortListener, { once: true });
+    }
 
     try {
-      const stream = this.fmClient.streamSSE("POST", "/v1/chat/completions", {
-        model,
-        messages: [{ role: "user", content: req.prompt }],
-        stream: true,
-        temperature: req.options?.temperature,
-        max_tokens: req.options?.maxTokens,
-        seed: req.options?.seed,
-      });
+      const stream = this.fmClient.streamSSE(
+        "POST",
+        "/v1/chat/completions",
+        {
+          model,
+          messages: this.buildMessages(req.prompt, instructions),
+          stream: true,
+          temperature: req.options?.temperature,
+          max_tokens: req.options?.maxTokens,
+          seed: req.options?.seed,
+        },
+        {},
+        abortController.signal,
+      );
 
       let usage = { promptTokens: 0, completionTokens: 0, totalTokens: 0 };
 
       for await (const chunk of stream) {
         if (abortController.signal.aborted) return;
+        
+        // Validate chunk structure
+        if (!chunk || typeof chunk !== 'object') {
+          continue; // Skip invalid chunks
+        }
+        
         const delta = chunk as {
           choices?: Array<{ delta?: { content?: string }; finish_reason?: string }>;
           usage?: { prompt_tokens: number; completion_tokens: number; total_tokens: number };
         };
+        
+        // Validate choices array if present
+        if (delta.choices && !Array.isArray(delta.choices)) {
+          continue;
+        }
+        
         const content = delta.choices?.[0]?.delta?.content;
         const finishReason = delta.choices?.[0]?.finish_reason;
 
@@ -216,6 +260,10 @@ export class UnifiedBackend {
       yield { id, event: "done", finishReason: "stop", usage } satisfies HelperStreamFrame;
     } catch (err) {
       yield this.makeStreamError(id, "unknown", err instanceof Error ? err.message : String(err));
+    } finally {
+      if (signal && abortListener) {
+        signal.removeEventListener("abort", abortListener);
+      }
     }
   }
 
@@ -240,5 +288,15 @@ export class UnifiedBackend {
 
   private makeStreamError(id: string, kind: string, message: string): HelperStreamFrame {
     return { ok: false, id, error: { kind, message } };
+  }
+
+  private buildMessages(prompt: string, instructions?: string): Array<{ role: "system" | "user"; content: string }> {
+    if (instructions) {
+      return [
+        { role: "system", content: instructions },
+        { role: "user", content: prompt },
+      ];
+    }
+    return [{ role: "user", content: prompt }];
   }
 }

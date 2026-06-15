@@ -45,6 +45,9 @@ export class McpStdioClient {
   private nextId = 0;
   private initialized = false;
   private readonly opts: Required<Omit<McpClientOptions, "bearerToken">> & Pick<McpClientOptions, "bearerToken">;
+  private cachedTools: OpenAITool[] | null = null;
+  private toolsCacheTime = 0;
+  private readonly toolsCacheTtlMs = 5 * 60 * 1000; // 5 minutes
 
   constructor(opts: McpClientOptions) {
     this.opts = {
@@ -74,6 +77,8 @@ export class McpStdioClient {
         this.failAllPending(new Error(`mcp server exited code=${code} signal=${signal}`));
         this.child = null;
         this.initialized = false;
+        this.cachedTools = null;
+        this.toolsCacheTime = 0;
       });
     }
     // Standard MCP handshake.
@@ -83,17 +88,38 @@ export class McpStdioClient {
       clientInfo: { name: "afm-js", version: "0.0.1" },
     });
     await this.notify("notifications/initialized", {});
+    // Check if process is still alive after handshake (race condition fix)
+    if (!this.child || this.child.killed) {
+      throw new Error("mcp server exited during initialization");
+    }
     this.initialized = true;
   }
 
   async listTools(): Promise<OpenAITool[]> {
-    await this.start();
-    const reply = await this.request("tools/list", {});
-    if (reply.error) {
-      throw new Error(`mcp tools/list failed: ${reply.error.message}`);
+    const now = Date.now();
+    if (this.cachedTools && (now - this.toolsCacheTime) < this.toolsCacheTtlMs) {
+      return this.cachedTools;
     }
-    const result = reply.result as McpToolsListResult | undefined;
-    return (result?.tools ?? []).map(mcpToolToOpenAI);
+
+    await this.start();
+    try {
+      const reply = await this.request("tools/list", {});
+      if (reply.error) {
+        throw new Error(`mcp tools/list failed: ${reply.error.message}`);
+      }
+      const result = reply.result as McpToolsListResult | undefined;
+      const tools = (result?.tools ?? []).map(mcpToolToOpenAI);
+      this.cachedTools = tools;
+      this.toolsCacheTime = now;
+      return tools;
+    } catch (err) {
+      // If we have cached tools, return them even on error to avoid breaking requests
+      if (this.cachedTools) {
+        this.opts.debug(`mcp tools/list failed, using cached tools: ${err}`);
+        return this.cachedTools;
+      }
+      throw err;
+    }
   }
 
   async callTool(name: string, args: string): Promise<string> {

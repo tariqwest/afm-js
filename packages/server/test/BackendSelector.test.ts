@@ -10,14 +10,39 @@ import {
 } from "../src/bridge/BackendSelector.js";
 import { FmProcessManager } from "@afm-js/core";
 
-// Mock the FmProcessManager module
+// Mock the FmProcessManager and HelperProcessManager modules
 vi.mock("@afm-js/core", async (importOriginal) => {
   const actual = await importOriginal<typeof import("@afm-js/core")>();
+  const MockFmProcessManager = class {
+    static isAvailable = vi.fn();
+    constructor() {
+      // Mock constructor
+    }
+    async spawn() {
+      return { socketPath: "/tmp/mock-fm.sock" };
+    }
+    async shutdown() {
+      // Mock shutdown
+    }
+    getSocketPath() {
+      return "/tmp/mock-fm.sock";
+    }
+  };
+  const MockHelperProcessManager = class {
+    constructor() {
+      // Mock constructor
+    }
+    async spawn() {
+      return { socketPath: "/tmp/mock-helper.sock" };
+    }
+    async shutdown() {
+      // Mock shutdown
+    }
+  };
   return {
     ...actual,
-    FmProcessManager: {
-      isAvailable: vi.fn(),
-    },
+    FmProcessManager: MockFmProcessManager as any,
+    HelperProcessManager: MockHelperProcessManager as any,
   };
 });
 
@@ -55,24 +80,20 @@ describe("BackendSelector", () => {
 
       const opts: BackendSelectorOptions = { force: "fm" };
       
-      // This will fail since fm is not available, but it proves we try fm first
-      await expect(selectBackend(opts)).rejects.toThrow();
+      // With the mock, this should succeed and return fm backend
+      const result = await selectBackend(opts);
+      expect(result.kind).toBe("fm");
+      expect(result).toHaveProperty("manager");
     });
 
     it("forces helper backend when force: 'helper' specified", async () => {
       const opts: BackendSelectorOptions = { force: "helper" };
       
-      // If helper exists, it succeeds; if not, it throws
-      // Either behavior is valid - we're testing the code path
-      try {
-        const result = await selectBackend(opts);
-        // Helper exists - verify structure
-        expect(result.kind).toBe("helper");
-        expect(result).toHaveProperty("helper");
-      } catch (err) {
-        // Helper not found - verify error message
-        expect(String(err)).toMatch(/afm-fm-helper/);
-      }
+      // With the mock, this should succeed and return helper backend
+      const result = await selectBackend(opts);
+      expect(result.kind).toBe("helper");
+      expect(result).toHaveProperty("manager");
+      expect(result).toHaveProperty("socketPath");
     });
   });
 
@@ -80,14 +101,10 @@ describe("BackendSelector", () => {
     it("selects fm when available", async () => {
       vi.mocked(FmProcessManager.isAvailable).mockResolvedValue(true);
 
-      // This will fail to spawn since we can't actually spawn fm in tests,
-      // but it verifies the detection path
-      try {
-        await selectBackend();
-      } catch (err) {
-        // Expected - we can't actually spawn fm in test environment
-        expect(String(err)).toMatch(/spawn|ENOENT|Failed/);
-      }
+      // With the mock, this should succeed and return fm backend
+      const result = await selectBackend();
+      expect(result.kind).toBe("fm");
+      expect(result).toHaveProperty("manager");
 
       // Verify we checked fm availability
       expect(FmProcessManager.isAvailable).toHaveBeenCalled();
@@ -96,15 +113,11 @@ describe("BackendSelector", () => {
     it("falls back to helper when fm not available", async () => {
       vi.mocked(FmProcessManager.isAvailable).mockResolvedValue(false);
 
-      // If helper exists, it succeeds; if not, it throws
-      try {
-        const result = await selectBackend();
-        // Helper exists - verify structure
-        expect(result.kind).toBe("helper");
-      } catch (err) {
-        // Helper not found - verify error message
-        expect(String(err)).toMatch(/afm-fm-helper/);
-      }
+      // With the mock, this should succeed and return helper backend
+      const result = await selectBackend();
+      expect(result.kind).toBe("helper");
+      expect(result).toHaveProperty("manager");
+      expect(result).toHaveProperty("socketPath");
     });
   });
 
@@ -115,8 +128,10 @@ describe("BackendSelector", () => {
         socketPath: "/tmp/custom-test.sock",
       };
 
-      // Will fail to spawn, but validates options pass through
-      await expect(selectBackend(opts)).rejects.toThrow();
+      // With the mock, this should succeed
+      const result = await selectBackend(opts);
+      expect(result.kind).toBe("fm");
+      expect(result).toHaveProperty("manager");
     });
 
     it("accepts custom helper path", async () => {
@@ -125,10 +140,11 @@ describe("BackendSelector", () => {
         helperPath: "/nonexistent/helper",
       };
 
-      // Non-existent path returns helper object, spawn failure happens on first request
+      // With the mock, this should succeed
       const result = await selectBackend(opts);
       expect(result.kind).toBe("helper");
-      expect(result).toHaveProperty("helper");
+      expect(result).toHaveProperty("manager");
+      expect(result).toHaveProperty("socketPath");
     });
 
     it("accepts debug callback", async () => {
@@ -143,7 +159,6 @@ describe("BackendSelector", () => {
       expect(result.kind).toBe("helper");
       
       // Debug messages may be logged during spawn attempt
-      // (implementation dependent - may be empty if spawn fails immediately)
       expect(debugMessages).toBeDefined();
     });
   });

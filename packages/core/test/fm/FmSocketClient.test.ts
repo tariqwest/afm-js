@@ -4,7 +4,7 @@
 
 import { describe, it, expect, beforeAll, afterAll } from "vitest";
 import { FmSocketClient } from "../../src/fm/FmSocketClient.js";
-import { createServer, type Server, type Socket } from "node:net";
+import { createServer as createHttpServer, type Server, IncomingMessage, ServerResponse } from "node:http";
 import { unlinkSync } from "node:fs";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
@@ -17,40 +17,27 @@ describe("FmSocketClient", () => {
   beforeAll(async () => {
     socketPath = join(tmpdir(), `fm-test-${Date.now()}.sock`);
     
-    server = createServer((socket: Socket) => {
-      let buffer = Buffer.alloc(0);
+    server = createHttpServer((req: IncomingMessage, res: ServerResponse) => {
+      let body = "";
       
-      socket.on("data", (data: Buffer) => {
-        buffer = Buffer.concat([buffer, data]);
-        
-        // Check for complete HTTP request (double CRLF)
-        const headerEnd = buffer.indexOf("\r\n\r\n");
-        if (headerEnd === -1) return;
-        
-        const headerText = buffer.subarray(0, headerEnd).toString("utf-8");
-        const lines = headerText.split("\r\n");
-        const [method, path] = lines[0].split(" ");
-        
-        // Parse Content-Length
-        let contentLength = 0;
-        for (const line of lines.slice(1)) {
-          if (line.toLowerCase().startsWith("content-length:")) {
-            contentLength = parseInt(line.split(":")[1].trim(), 10);
-            break;
-          }
-        }
-        
-        const bodyStart = headerEnd + 4;
-        if (buffer.length < bodyStart + contentLength) return;
-        
-        const body = buffer.subarray(bodyStart, bodyStart + contentLength).toString("utf-8");
-        lastRequest = { method, path, body };
+      req.on("data", (chunk) => {
+        body += chunk.toString();
+      });
+      
+      req.on("end", () => {
+        lastRequest = {
+          method: req.method || "GET",
+          path: req.url || "/",
+          body,
+        };
         
         // Send HTTP response
         const responseBody = JSON.stringify({ success: true });
-        const response = `HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: ${responseBody.length}\r\n\r\n${responseBody}`;
-        socket.write(response);
-        socket.end();
+        res.writeHead(200, {
+          "Content-Type": "application/json",
+          "Content-Length": responseBody.length,
+        });
+        res.end(responseBody);
       });
     });
 
@@ -85,9 +72,9 @@ describe("FmSocketClient", () => {
     await client.connect();
     
     const response = await client.request("GET", "/test");
-    const body = JSON.parse(response.body.toString("utf-8"));
+    const responseBody = JSON.parse(response.body.toString("utf-8"));
     
-    expect(body).toEqual({ success: true });
+    expect(responseBody).toEqual({ success: true });
     
     client.close();
   });

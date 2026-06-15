@@ -95,12 +95,12 @@ async function createBackend(opts: StartOptions, debug: (msg: string) => void): 
   debug(`Detected backend: ${detected.kind}`);
 
   if (detected.kind === "fm") {
-    const client = new FmSocketClient(detected.process.socketPath);
+    const client = new FmSocketClient(detected.manager.getSocketPath());
     await client.connect();
     return new UnifiedBackend({
       kind: "fm",
       fmClient: client,
-      processManager: new FmProcessManager(detected.process.socketPath),
+      processManager: detected.manager,
       debug,
     });
   } else {

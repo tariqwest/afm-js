@@ -12,6 +12,7 @@
     "build": "pnpm -r --filter=./packages/* build",
     "test": "vitest run",
     "test:watch": "vitest",
+    "test:e2e": "vitest run packages/afm-js/test/e2e",
     "typecheck": "tsc --build",
     "clean": "tsc --build --clean && rm -rf packages/*/dist",
     "format": "biome format --write .",
@@ -19,7 +20,8 @@
     "check": "biome check .",
     "release:brew:generate": "node scripts/generate-homebrew-formula.js",
     "release:brew:publish": "bash scripts/publish-to-tap.sh",
-    "release:prepare": "pnpm run build && pnpm run test && pnpm run release:brew:generate"
+    "release:prepare": "pnpm run build && pnpm run test && pnpm run release:brew:generate",
+    "ci": "pnpm run build && pnpm run test && pnpm run typecheck"
   },
   "devDependencies": {
     "@biomejs/biome": "^1.9.4",
@@ -27,11 +29,9 @@
     "typescript": "^5.7.2",
     "vitest": "^3.2.6"
   },
-  "pnpm": {
-    "overrides": {
-      "vite": ">=6.4.2",
-      "esbuild": ">=0.28.1"
-    }
+  "overrides": {
+    "vite": ">=6.4.2",
+    "esbuild": ">=0.28.1"
   },
   "packageManager": "pnpm@9.15.0"
 }
