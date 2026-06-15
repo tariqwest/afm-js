@@ -377,7 +377,7 @@ async function main() {
     const afmJsTarball = join(tempDir, `afm-js-prebuilt-arm64-apple-darwin-${VERSION}.tar.gz`);
     if (!DRY_RUN) {
       exec(
-        `tar -czf "${afmJsTarball}" -C packages/afm-js dist bin`,
+        `tar -czf "${afmJsTarball}" -C packages/afm-js dist bin node_modules`,
         { cwd: ROOT_DIR }
       );
     } else {
