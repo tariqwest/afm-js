@@ -386,9 +386,9 @@ async function main() {
 ### SDK Examples
 
 See for complete working examples:
-- `simple_inference.ts` — Basic non-streaming inference
-- `streaming_example.ts` — Streaming response handling
-- `transcript_processing.ts` — Processing transcripts from Swift apps
+- [`simple_inference.ts`](packages/core/examples/simple_inference.ts) — Basic non-streaming inference
+- [`streaming_example.ts`](packages/core/examples/streaming_example.ts) — Streaming response handling
+- [`transcript_processing.ts`](packages/core/examples/transcript_processing.ts) — Processing transcripts from Swift apps
 
 Run examples:
 ```bash
