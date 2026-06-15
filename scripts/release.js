@@ -314,6 +314,12 @@ async function main() {
     logWarn("DRY RUN mode enabled - no actual changes will be made");
   }
 
+  // Detect if running in CI environment
+  const isCI = process.env.CI === "true";
+  if (isCI) {
+    logInfo("Running in CI environment - skipping build/test (handled by workflow)");
+  }
+
   // Create temporary directory for artifacts
   const tempDir = join(ROOT_DIR, ".release-temp");
   if (existsSync(tempDir)) {
@@ -322,20 +328,24 @@ async function main() {
   mkdirSync(tempDir, { recursive: true });
 
   try {
-    // Step 1: Build the project
-    logStep("Building afm-js package...");
-    if (!DRY_RUN) {
-      exec("pnpm run build", { cwd: ROOT_DIR });
-    } else {
-      logWarn("DRY RUN: Skipping build");
+    // Step 1: Build the project (skip in CI)
+    if (!isCI) {
+      logStep("Building afm-js package...");
+      if (!DRY_RUN) {
+        exec("pnpm run build", { cwd: ROOT_DIR });
+      } else {
+        logWarn("DRY RUN: Skipping build");
+      }
     }
 
-    // Step 2: Build the Swift helper
-    logStep("Building afm-fm-helper binary...");
-    if (!DRY_RUN) {
-      exec("swift build -c release", { cwd: join(ROOT_DIR, "helper") });
-    } else {
-      logWarn("DRY RUN: Skipping Swift build");
+    // Step 2: Build the Swift helper (skip in CI)
+    if (!isCI) {
+      logStep("Building afm-fm-helper binary...");
+      if (!DRY_RUN) {
+        exec("swift build -c release", { cwd: join(ROOT_DIR, "helper") });
+      } else {
+        logWarn("DRY RUN: Skipping Swift build");
+      }
     }
 
     // Step 3: Create afm-js tarball
