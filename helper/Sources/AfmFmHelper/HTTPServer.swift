@@ -162,8 +162,8 @@ final class HTTPServer: @unchecked Sendable {
         params.defaultProtocolStack.applicationProtocols.insert(
             NWProtocolTCP.Options(), at: 0)
 
-        let endpoint = NWEndpoint.unix(path: socketPath)
-        self.listener = try NWListener(using: params, on: endpoint)
+        params.requiredLocalEndpoint = NWEndpoint.unix(path: socketPath)
+        self.listener = try NWListener(using: params)
         self.routes = routes
     }
 
