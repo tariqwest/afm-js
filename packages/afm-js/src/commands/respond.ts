@@ -3,12 +3,10 @@
 // Mirrors Apple's `fm respond` command semantics.
 // ============================================================================
 
-import { existsSync } from "node:fs";
-import { dirname, resolve } from "node:path";
-import { fileURLToPath } from "node:url";
 import { defineCommand } from "citty";
-import { HelperProcess, Session, UnifiedBackend } from "@afm-js/server";
+import { Session } from "@afm-js/server";
 import { ModelBackend } from "@afm-js/core";
+import { createBackend } from "./backend.js";
 
 export const respondCommand = defineCommand({
   meta: {
@@ -65,17 +63,14 @@ export const respondCommand = defineCommand({
     }
 
     const modelBackend = args.model === "pcc" ? ("privateCloudCompute" as const) : ("onDevice" as const);
-    
-    const helper = new HelperProcess({ binaryPath: resolveHelperPath(args.helper as string | undefined) });
-    helper.start();
-    const backend = UnifiedBackend.createHelper(helper);
 
+    const { backend, shutdown } = await createBackend(args.helper as string | undefined);
     const session = await Session.open(
-      backend, 
-      modelBackend, 
-      args.instructions as string | undefined
+      backend,
+      modelBackend,
+      args.instructions as string | undefined,
     );
-    
+
     const sessionOptions = {
       temperature: args.temperature ? parseFloat(args.temperature as string) : undefined,
       maxTokens: args["max-tokens"] ? parseInt(args["max-tokens"] as string, 10) : undefined,
@@ -129,7 +124,7 @@ export const respondCommand = defineCommand({
       }
     } finally {
       await session.close();
-      await helper.shutdown();
+      await shutdown();
     }
   },
 });
@@ -143,27 +138,3 @@ async function readAllStdin(): Promise<string> {
   });
 }
 
-function resolveHelperPath(override?: string): string {
-  const candidates = [
-    override,
-    process.env.AFM_HELPER_PATH,
-    resolve(
-      dirname(fileURLToPath(import.meta.url)),
-      "..",
-      "..",
-      "..",
-      "..",
-      "helper",
-      ".build",
-      "release",
-      "afm-fm-helper",
-    ),
-  ];
-  for (const c of candidates) {
-    if (c && existsSync(c)) return c;
-  }
-  process.stderr.write(
-    "afm-js: could not locate afm-fm-helper. Set --helper or AFM_HELPER_PATH.\n",
-  );
-  process.exit(1);
-}

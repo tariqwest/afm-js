@@ -1,13 +1,13 @@
 // ============================================================================
 // quota-usage.ts — `afm-js quota-usage`. Check PCC quota usage.
 // Mirrors Apple's `fm quota-usage` command.
+//
+// The FM Client backend (/usr/bin/fm) may expose a /v1/quota endpoint.
+// The helper backend does not support quota queries; outputs a clear message.
 // ============================================================================
 
-import { existsSync } from "node:fs";
-import { dirname, resolve } from "node:path";
-import { fileURLToPath } from "node:url";
 import { defineCommand } from "citty";
-import { HelperProcess, UnifiedBackend } from "@afm-js/server";
+import { createBackend } from "./backend.js";
 
 export const quotaUsageCommand = defineCommand({
   meta: {
@@ -25,76 +25,53 @@ export const quotaUsageCommand = defineCommand({
     },
   },
   async run({ args }) {
-    const helper = new HelperProcess({ binaryPath: resolveHelperPath(args.helper as string | undefined) });
-    helper.start();
-    const backend = UnifiedBackend.createHelper(helper);
+    const { backend, shutdown } = await createBackend(args.helper as string | undefined);
 
     try {
-      // Try to get quota info - this may not be supported by all backends
-      const reply = await backend.call({ op: "quotaUsage" });
-      
-      const used = reply.used as number | undefined;
-      const limit = reply.limit as number | undefined;
-      const remaining = reply.remaining as number | undefined;
-      
-      if (args.json) {
-        process.stdout.write(
-          `${JSON.stringify({
-            used: used ?? null,
-            limit: limit ?? null,
-            remaining: remaining ?? null,
-          })}\n`,
-        );
-      } else {
-        if (used !== undefined && limit !== undefined) {
-          process.stdout.write(`PCC Quota: ${used} / ${limit} used\n`);
-          if (remaining !== undefined) {
-            process.stdout.write(`Remaining: ${remaining}\n`);
+      if (backend.getKind() === "fm") {
+        // FM backend: attempt /v1/quota endpoint
+        const fmClient = (backend as unknown as { fmClient?: { request: (method: string, path: string) => Promise<{ statusCode: number; body: Buffer }> } }).fmClient;
+        if (fmClient) {
+          try {
+            const response = await fmClient.request("GET", "/v1/quota");
+            if (response.statusCode === 200) {
+              const body = JSON.parse(response.body.toString("utf-8")) as Record<string, unknown>;
+              if (args.json) {
+                process.stdout.write(`${JSON.stringify(body)}\n`);
+              } else {
+                const used = body.used;
+                const limit = body.limit;
+                const remaining = body.remaining;
+                if (used !== undefined && limit !== undefined) {
+                  process.stdout.write(`PCC Quota: ${used} / ${limit} used\n`);
+                  if (remaining !== undefined) {
+                    process.stdout.write(`Remaining: ${remaining}\n`);
+                  }
+                } else {
+                  process.stdout.write(`PCC quota: ${JSON.stringify(body)}\n`);
+                }
+              }
+              return;
+            }
+          } catch {
+            // Fall through to "not available" message
           }
-        } else {
-          process.stdout.write("PCC quota information not available.\n");
         }
       }
-    } catch (err) {
+
+      // Helper backend (or FM backend without /v1/quota): quota not available
       if (args.json) {
         process.stdout.write(
-          `${JSON.stringify({
-            used: null,
-            limit: null,
-            remaining: null,
-            error: String(err),
-          })}\n`,
+          `${JSON.stringify({ available: false, reason: "Quota tracking requires the FM Client backend (/usr/bin/fm on macOS 27+)." })}\n`,
         );
       } else {
-        process.stdout.write("PCC quota information not available.\n");
+        process.stdout.write(
+          "PCC quota information is not available on this backend.\n" +
+            "Quota tracking requires the FM Client backend (/usr/bin/fm on macOS 27+).\n",
+        );
       }
     } finally {
-      await helper.shutdown();
+      await shutdown();
     }
   },
 });
-
-function resolveHelperPath(override?: string): string {
-  const candidates = [
-    override,
-    process.env.AFM_HELPER_PATH,
-    resolve(
-      dirname(fileURLToPath(import.meta.url)),
-      "..",
-      "..",
-      "..",
-      "..",
-      "helper",
-      ".build",
-      "release",
-      "afm-fm-helper",
-    ),
-  ];
-  for (const c of candidates) {
-    if (c && existsSync(c)) return c;
-  }
-  process.stderr.write(
-    "afm-js: could not locate afm-fm-helper. Set --helper or AFM_HELPER_PATH.\n",
-  );
-  process.exit(1);
-}

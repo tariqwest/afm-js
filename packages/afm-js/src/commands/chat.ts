@@ -3,13 +3,11 @@
 // model's responses token-by-token so the user sees output as it arrives.
 // ============================================================================
 
-import { existsSync } from "node:fs";
-import { dirname, resolve } from "node:path";
 import { createInterface } from "node:readline/promises";
 import { stdin as input, stdout as output } from "node:process";
-import { fileURLToPath } from "node:url";
 import { defineCommand } from "citty";
-import { HelperProcess, Session, UnifiedBackend } from "@afm-js/server";
+import { Session } from "@afm-js/server";
+import { createBackend } from "./backend.js";
 
 export const chatCommand = defineCommand({
   meta: {
@@ -30,12 +28,7 @@ export const chatCommand = defineCommand({
       process.stderr.write("afm-js chat: requires an interactive terminal (stdin must be a TTY)\n");
       process.exit(2);
     }
-    const helper = new HelperProcess({
-      binaryPath: resolveHelperPath(args.helper as string | undefined),
-    });
-    helper.start();
-    const backend = UnifiedBackend.createHelper(helper);
-
+    const { backend, shutdown } = await createBackend(args.helper as string | undefined);
     const modelBackend = args.model === "pcc" ? ("privateCloudCompute" as const) : ("onDevice" as const);
     const session = await Session.open(backend, modelBackend, args.instructions as string | undefined);
 
@@ -66,33 +59,8 @@ export const chatCommand = defineCommand({
     } finally {
       rl.close();
       await session.close();
-      await helper.shutdown();
+      await shutdown();
       process.stdout.write("\nGoodbye.\n");
     }
   },
 });
-
-function resolveHelperPath(override?: string): string {
-  const candidates = [
-    override,
-    process.env.AFM_HELPER_PATH,
-    resolve(
-      dirname(fileURLToPath(import.meta.url)),
-      "..",
-      "..",
-      "..",
-      "..",
-      "helper",
-      ".build",
-      "release",
-      "afm-fm-helper",
-    ),
-  ];
-  for (const c of candidates) {
-    if (c && existsSync(c)) return c;
-  }
-  process.stderr.write(
-    "afm-js: could not locate afm-fm-helper. Set --helper or AFM_HELPER_PATH.\n",
-  );
-  process.exit(1);
-}

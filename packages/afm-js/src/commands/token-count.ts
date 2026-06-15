@@ -3,11 +3,9 @@
 // Mirrors Apple's `fm token-count` command.
 // ============================================================================
 
-import { existsSync } from "node:fs";
-import { dirname, resolve } from "node:path";
-import { fileURLToPath } from "node:url";
 import { defineCommand } from "citty";
-import { HelperProcess, UnifiedBackend } from "@afm-js/server";
+import { Session } from "@afm-js/server";
+import { createBackend } from "./backend.js";
 
 export const tokenCountCommand = defineCommand({
   meta: {
@@ -42,35 +40,34 @@ export const tokenCountCommand = defineCommand({
       process.exit(2);
     }
 
-    const helper = new HelperProcess({ binaryPath: resolveHelperPath(args.helper as string | undefined) });
-    helper.start();
-    const backend = UnifiedBackend.createHelper(helper);
+    const { backend, shutdown } = await createBackend(args.helper as string | undefined);
 
     try {
-      // Use the backend to get token count
-      const reply = await backend.call({
-        op: "tokenCount",
-        prompt: text,
-        instructions: args.instructions as string | undefined,
-      });
+      // Count tokens by doing a minimal respond call (max_tokens=1) and reading
+      // usage.promptTokens from the response. Works on both FM and helper backends.
+      const session = await Session.open(backend, "onDevice", args.instructions as string | undefined);
+      try {
+        const result = await session.respond(text.trim() || ".", { maxTokens: 1 });
+        const promptTokens = result.usage.promptTokens;
 
-      if (args.json) {
-        process.stdout.write(
-          `${JSON.stringify({
-            prompt_tokens: reply.promptTokens ?? 0,
-            instructions_tokens: reply.instructionsTokens ?? 0,
-            total_tokens: reply.totalTokens ?? 0,
-          })}\n`,
-        );
-      } else {
-        const total = reply.totalTokens ?? 0;
-        process.stdout.write(`${total}\n`);
+        if (args.json) {
+          process.stdout.write(
+            `${JSON.stringify({
+              prompt_tokens: promptTokens,
+              total_tokens: promptTokens,
+            })}\n`,
+          );
+        } else {
+          process.stdout.write(`${promptTokens}\n`);
+        }
+      } finally {
+        await session.close();
       }
     } catch (err) {
       process.stderr.write(`afm-js: token count failed: ${err}\n`);
       process.exit(1);
     } finally {
-      await helper.shutdown();
+      await shutdown();
     }
   },
 });
@@ -84,27 +81,3 @@ async function readAllStdin(): Promise<string> {
   });
 }
 
-function resolveHelperPath(override?: string): string {
-  const candidates = [
-    override,
-    process.env.AFM_HELPER_PATH,
-    resolve(
-      dirname(fileURLToPath(import.meta.url)),
-      "..",
-      "..",
-      "..",
-      "..",
-      "helper",
-      ".build",
-      "release",
-      "afm-fm-helper",
-    ),
-  ];
-  for (const c of candidates) {
-    if (c && existsSync(c)) return c;
-  }
-  process.stderr.write(
-    "afm-js: could not locate afm-fm-helper. Set --helper or AFM_HELPER_PATH.\n",
-  );
-  process.exit(1);
-}

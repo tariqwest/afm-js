@@ -76,8 +76,10 @@ export const schemaCommand = defineCommand({
       // Parse string fields
       if (args.string) {
         for (const field of String(args.string).split(",")) {
-          const [name, desc] = field.split(":");
-          properties[name] = { type: "string", description: desc || name };
+          const parts = field.split(":");
+          const name = parts[0]!;
+          const desc = parts[1] ?? name;
+          properties[name] = { type: "string", description: desc };
           required.push(name);
         }
       }
@@ -85,8 +87,10 @@ export const schemaCommand = defineCommand({
       // Parse int fields
       if (args.int) {
         for (const field of String(args.int).split(",")) {
-          const [name, desc] = field.split(":");
-          properties[name] = { type: "integer", description: desc || name };
+          const parts = field.split(":");
+          const name = parts[0]!;
+          const desc = parts[1] ?? name;
+          properties[name] = { type: "integer", description: desc };
           required.push(name);
         }
       }
@@ -94,8 +98,10 @@ export const schemaCommand = defineCommand({
       // Parse number fields
       if (args.number) {
         for (const field of String(args.number).split(",")) {
-          const [name, desc] = field.split(":");
-          properties[name] = { type: "number", description: desc || name };
+          const parts = field.split(":");
+          const name = parts[0]!;
+          const desc = parts[1] ?? name;
+          properties[name] = { type: "number", description: desc };
           required.push(name);
         }
       }
@@ -103,8 +109,10 @@ export const schemaCommand = defineCommand({
       // Parse bool fields
       if (args.bool) {
         for (const field of String(args.bool).split(",")) {
-          const [name, desc] = field.split(":");
-          properties[name] = { type: "boolean", description: desc || name };
+          const parts = field.split(":");
+          const name = parts[0]!;
+          const desc = parts[1] ?? name;
+          properties[name] = { type: "boolean", description: desc };
           required.push(name);
         }
       }
@@ -127,7 +135,7 @@ export const schemaCommand = defineCommand({
       if (schemaType === "object" && schema.properties) {
         process.stdout.write("\nProperties:\n");
         for (const [name, prop] of Object.entries(schema.properties as Record<string, { type: string; description: string }>)) {
-          process.stdout.write(`  ${name}: ${prop.type}${schema.required?.includes(name) ? " (required)" : ""}\n`);
+          process.stdout.write(`  ${name}: ${prop.type}${(schema.required as string[] | undefined)?.includes(name) ? " (required)" : ""}\n`);
         }
       }
       process.stdout.write(`\nJSON:\n${JSON.stringify(schema, null, 2)}\n`);

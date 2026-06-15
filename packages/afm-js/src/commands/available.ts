@@ -3,11 +3,8 @@
 // Mirrors Apple's `fm available` command.
 // ============================================================================
 
-import { existsSync } from "node:fs";
-import { dirname, resolve } from "node:path";
-import { fileURLToPath } from "node:url";
 import { defineCommand } from "citty";
-import { HelperProcess, UnifiedBackend } from "@afm-js/server";
+import { createBackend } from "./backend.js";
 
 export const availableCommand = defineCommand({
   meta: {
@@ -25,14 +22,11 @@ export const availableCommand = defineCommand({
     },
   },
   async run({ args }) {
-    const helper = new HelperProcess({ binaryPath: resolveHelperPath(args.helper as string | undefined) });
-    helper.start();
-    const backend = UnifiedBackend.createHelper(helper);
+    const { backend, shutdown } = await createBackend(args.helper as string | undefined);
 
     try {
       const reply = await backend.call({ op: "availability" });
-      
-      const status = reply.status as string;
+      const status = (reply as unknown as { status: string }).status ?? "unknownUnavailable";
       const isAvailable = status === "available";
       
       if (args.json) {
@@ -55,32 +49,7 @@ export const availableCommand = defineCommand({
       process.stderr.write(`afm-js: availability check failed: ${err}\n`);
       process.exit(1);
     } finally {
-      await helper.shutdown();
+      await shutdown();
     }
   },
 });
-
-function resolveHelperPath(override?: string): string {
-  const candidates = [
-    override,
-    process.env.AFM_HELPER_PATH,
-    resolve(
-      dirname(fileURLToPath(import.meta.url)),
-      "..",
-      "..",
-      "..",
-      "..",
-      "helper",
-      ".build",
-      "release",
-      "afm-fm-helper",
-    ),
-  ];
-  for (const c of candidates) {
-    if (c && existsSync(c)) return c;
-  }
-  process.stderr.write(
-    "afm-js: could not locate afm-fm-helper. Set --helper or AFM_HELPER_PATH.\n",
-  );
-  process.exit(1);
-}
