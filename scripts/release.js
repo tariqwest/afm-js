@@ -15,7 +15,6 @@ import { readFileSync, writeFileSync, existsSync, mkdirSync, rmSync, createReadS
 import { join, dirname, basename } from "node:path";
 import { fileURLToPath } from "node:url";
 import { createHash } from "node:crypto";
-import { Readable } from "node:stream";
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
@@ -74,6 +73,85 @@ function calculateSha256(filePath) {
   const data = readFileSync(filePath);
   hash.update(data);
   return hash.digest("hex");
+}
+
+function generateFormula(version, sha256, helperSha256) {
+  const url = `https://github.com/tariqwest/afm-js/releases/download/v${version}/afm-js-prebuilt-arm64-apple-darwin-${version}.tar.gz`;
+
+  return `class AfmJs < Formula
+  desc "Apple Foundation Models for Node.js — OpenAI-compatible HTTP server + CLI"
+  homepage "https://github.com/tariqwest/afm-js"
+  url "${url}"
+  sha256 "${sha256}"
+  license "MIT"
+  version "${version}"
+
+  depends_on "node"
+  depends_on :macos
+  depends_on arch: :arm64
+
+  resource "afm-fm-helper" do
+    url "https://github.com/tariqwest/afm-js/releases/download/v${version}/afm-fm-helper-arm64-apple-darwin-${version}.tar.gz"
+    sha256 "${helperSha256}"
+  end
+
+  def install
+    # Install prebuilt afm-js package
+    libexec.install Dir["dist"], "bin"
+
+    # Create wrapper script that uses Homebrew's node
+    (bin/"afm-js").write <<~EOS
+      #!/bin/bash
+      export AFM_JS_HELPER_PATH="#{opt_prefix}/libexec/afm-fm-helper"
+      exec "#{Formula["node"].opt_bin}/node" "#{libexec}/bin/afm-js.js" "$@"
+    EOS
+    chmod 0755, bin/"afm-js"
+
+    # Install helper binary from resource
+    resource("afm-fm-helper").stage do
+      libexec.install "afm-fm-helper"
+    end
+    chmod 0755, libexec/"afm-fm-helper"
+  end
+
+  def caveats
+    <<~EOS
+      afm-js requires:
+        - macOS 26 (Tahoe) or later
+        - Apple Silicon (M1+)
+        - Apple Intelligence enabled in System Settings
+
+      To start the server manually:
+        afm-js serve --port 11434
+
+      To run as a background service (auto-starts at login):
+        brew services start afm-js
+
+      Manage the service:
+        brew services stop afm-js
+        brew services restart afm-js
+        brew services info afm-js
+    EOS
+  end
+
+  service do
+    run [opt_bin/"afm-js", "serve", "--port", "11434"]
+    keep_alive true
+    log_path var/"log/afm-js.log"
+    error_log_path var/"log/afm-js-error.log"
+    environment_variables AFM_JS_HELPER_PATH: opt_prefix/"libexec/afm-fm-helper"
+    require_root false
+  end
+
+  test do
+    # Test that the binary runs
+    assert_match "afm-js", shell_output("#{bin}/afm-js --help")
+    
+    # Test health endpoint if server can start briefly
+    # Note: This may fail if Apple Intelligence is not available
+  end
+end
+`;
 }
 
 // GitHub API helpers
@@ -156,6 +234,74 @@ async function uploadAsset(release, filePath, contentType) {
   return response.json();
 }
 
+async function publishToTap(version, formulaContent) {
+  const TAP_REPO = process.env.TAP_REPO || "tariqwest/homebrew-tap";
+  const TAP_DIR = process.env.TAP_DIR || join(process.env.HOME || "", ".cache/afm-js-tap");
+  
+  logStep(`Publishing formula to ${TAP_REPO}...`);
+  
+  if (DRY_RUN) {
+    logWarn("DRY RUN: Skipping tap publishing");
+    return;
+  }
+
+  // Clone or update the tap repository
+  if (existsSync(join(TAP_DIR, ".git"))) {
+    logInfo(`Updating existing tap repo at ${TAP_DIR}...`);
+    exec("git fetch origin", { cwd: TAP_DIR });
+    exec("git checkout main || git checkout master", { cwd: TAP_DIR, shell: true });
+    exec("git pull", { cwd: TAP_DIR });
+  } else {
+    logInfo(`Cloning tap repository ${TAP_REPO}...`);
+    execSilent(`rm -rf "${TAP_DIR}"`);
+    const cloneUrl = GITHUB_TOKEN
+      ? `https://${GITHUB_TOKEN}@github.com/${TAP_REPO}.git`
+      : `https://github.com/${TAP_REPO}.git`;
+    exec(`git clone "${cloneUrl}" "${TAP_DIR}"`);
+  }
+
+  // Create Formula directory if needed
+  const formulaDir = join(TAP_DIR, "Formula");
+  if (!existsSync(formulaDir)) {
+    mkdirSync(formulaDir, { recursive: true });
+  }
+
+  // Write the formula
+  const formulaPath = join(formulaDir, "afm-js.rb");
+  writeFileSync(formulaPath, formulaContent);
+
+  // Check if there are changes
+  try {
+    exec('git diff --quiet HEAD -- "Formula/afm-js.rb"', { cwd: TAP_DIR });
+    logWarn("No changes detected in formula. Already up to date?");
+    return;
+  } catch {
+    // Changes detected, continue
+  }
+
+  // Commit and push
+  logInfo("Committing changes...");
+  exec('git add "Formula/afm-js.rb"', { cwd: TAP_DIR });
+  exec(`git commit -m "afm-js ${version}"`, { cwd: TAP_DIR });
+
+  logInfo(`Pushing to ${TAP_REPO}...`);
+  const pushUrl = GITHUB_TOKEN
+    ? `https://${GITHUB_TOKEN}@github.com/${TAP_REPO}.git`
+    : "origin";
+
+  try {
+    exec(`git push "${pushUrl}" HEAD:main`, { cwd: TAP_DIR, stdio: "pipe" });
+  } catch {
+    try {
+      exec(`git push "${pushUrl}" HEAD:master`, { cwd: TAP_DIR, stdio: "pipe" });
+    } catch (error) {
+      throw new Error(`Failed to push to tap: ${error.message}`);
+    }
+  }
+
+  logInfo(`Successfully published afm-js ${version} to ${TAP_REPO}!`);
+}
+
 async function main() {
   logInfo(`Starting release process for afm-js v${VERSION}...`);
   
@@ -178,27 +324,47 @@ async function main() {
   try {
     // Step 1: Build the project
     logStep("Building afm-js package...");
-    exec("pnpm run build", { cwd: ROOT_DIR });
+    if (!DRY_RUN) {
+      exec("pnpm run build", { cwd: ROOT_DIR });
+    } else {
+      logWarn("DRY RUN: Skipping build");
+    }
 
     // Step 2: Build the Swift helper
     logStep("Building afm-fm-helper binary...");
-    exec("swift build -c release", { cwd: join(ROOT_DIR, "helper") });
+    if (!DRY_RUN) {
+      exec("swift build -c release", { cwd: join(ROOT_DIR, "helper") });
+    } else {
+      logWarn("DRY RUN: Skipping Swift build");
+    }
 
     // Step 3: Create afm-js tarball
     logStep("Creating afm-js prebuilt tarball...");
     const afmJsTarball = join(tempDir, `afm-js-prebuilt-arm64-apple-darwin-${VERSION}.tar.gz`);
-    exec(
-      `tar -czf "${afmJsTarball}" -C packages/afm-js dist bin`,
-      { cwd: ROOT_DIR }
-    );
+    if (!DRY_RUN) {
+      exec(
+        `tar -czf "${afmJsTarball}" -C packages/afm-js dist bin`,
+        { cwd: ROOT_DIR }
+      );
+    } else {
+      logWarn("DRY RUN: Skipping tarball creation");
+      // Create dummy file for testing
+      writeFileSync(afmJsTarball, "dummy");
+    }
 
     // Step 4: Create helper tarball
     logStep("Creating afm-fm-helper tarball...");
     const helperTarball = join(tempDir, `afm-fm-helper-arm64-apple-darwin-${VERSION}.tar.gz`);
-    exec(
-      `tar -czf "${helperTarball}" -C helper/.build/release afm-fm-helper`,
-      { cwd: ROOT_DIR }
-    );
+    if (!DRY_RUN) {
+      exec(
+        `tar -czf "${helperTarball}" -C helper/.build/release afm-fm-helper`,
+        { cwd: ROOT_DIR }
+      );
+    } else {
+      logWarn("DRY RUN: Skipping helper tarball creation");
+      // Create dummy file for testing
+      writeFileSync(helperTarball, "dummy");
+    }
 
     // Step 5: Calculate SHA256 hashes
     logStep("Calculating SHA256 hashes...");
@@ -246,15 +412,15 @@ See the [CHANGELOG](https://github.com/${REPO}/blob/main/CHANGELOG.md) for detai
 
     // Step 8: Generate Homebrew formula with SHA256 hashes
     logStep("Generating Homebrew formula...");
-    process.env.AFM_JS_VERSION = VERSION;
-    process.env.AFM_JS_SHA256 = afmJsSha256;
-    process.env.AFM_JS_HELPER_SHA256 = helperSha256;
+    const formulaContent = generateFormula(VERSION, afmJsSha256, helperSha256);
     
-    exec("node scripts/generate-homebrew-formula.js", { cwd: ROOT_DIR });
+    // Write formula to file for reference
+    const formulaPath = join(ROOT_DIR, "afm-js.rb");
+    writeFileSync(formulaPath, formulaContent);
+    logInfo(`Formula written to: ${formulaPath}`);
 
     // Step 9: Publish to tap
-    logStep("Publishing formula to Homebrew tap...");
-    exec("node scripts/publish-to-tap.js", { cwd: ROOT_DIR, args: [VERSION] });
+    await publishToTap(VERSION, formulaContent);
 
     logInfo(`Release ${VERSION} completed successfully!`);
     console.log("");
