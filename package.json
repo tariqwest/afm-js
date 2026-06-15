@@ -19,7 +19,7 @@
     "lint": "biome lint .",
     "check": "biome check .",
     "release:brew:generate": "node scripts/generate-homebrew-formula.js",
-    "release:brew:publish": "bash scripts/publish-to-tap.sh",
+    "release:brew:publish": "node scripts/publish-to-tap.js",
     "release:prepare": "pnpm run build && pnpm run test && pnpm run release:brew:generate",
     "ci": "pnpm run build && pnpm run test && pnpm run typecheck"
   },
