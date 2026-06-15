@@ -7,3 +7,6 @@ dist/
 .vitest-cache/
 coverage/
 *.log
+.env
+.env.local
+.env.*.local

@@ -15,6 +15,10 @@ import { readFileSync, writeFileSync, existsSync, mkdirSync, rmSync, createReadS
 import { join, dirname, basename } from "node:path";
 import { fileURLToPath } from "node:url";
 import { createHash } from "node:crypto";
+import dotenv from "dotenv";
+
+// Load environment variables from .env file if it exists
+dotenv.config();
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);

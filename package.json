@@ -1,6 +1,6 @@
 {
   "name": "afm-js-monorepo",
-  "version": "0.0.3",
+  "version": "0.0.4",
   "private": true,
   "type": "module",
   "description": "Apple Foundation Models for Node.js / TypeScript — OpenAI-compatible HTTP server + CLI",
@@ -25,6 +25,7 @@
   "devDependencies": {
     "@biomejs/biome": "^1.9.4",
     "@types/node": "^20.17.10",
+    "dotenv": "^17.4.2",
     "esbuild": "0.28.1",
     "typescript": "^5.7.2",
     "vite": "^8.0.16",
