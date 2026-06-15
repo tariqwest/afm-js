@@ -42,7 +42,7 @@ export {
   type Transcript,
   type TranscriptEntry,
   type TranscriptContent,
-  type ToolCall,
+  type ToolCall as TranscriptToolCall,
   type TranscriptAnalysis,
   type TranscriptComparison,
 } from "./transcript.js";
