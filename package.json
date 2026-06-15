@@ -25,12 +25,10 @@
   "devDependencies": {
     "@biomejs/biome": "^1.9.4",
     "@types/node": "^20.17.10",
+    "esbuild": "0.28.1",
     "typescript": "^5.7.2",
-    "vitest": "^3.2.6"
-  },
-  "overrides": {
-    "vite": ">=6.4.2",
-    "esbuild": ">=0.28.1"
+    "vite": "^8.0.16",
+    "vitest": "^4.1.9"
   },
   "packageManager": "pnpm@9.15.0"
 }
