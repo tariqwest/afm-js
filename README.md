@@ -1,10 +1,8 @@
 # afm-js
 
-Apple Foundation Models for Node.js. OpenAI-compatible HTTP server and CLI for Apple Intelligence on macOS.
+Apple Foundation Models for Node.js. OpenAI-compatible HTTP server and CLI for Apple Intelligence on macOS. Reaches the on-device `SystemLanguageModel` (and, on macOS 27+, `PrivateCloudComputeLanguageModel`) via apple's FM client if available, and a small Swift helper binary if not.
 
-A TypeScript / Node.js port of [apfel-plus](https://github.com/tariqwest/apfel-plus) (Swift). Same OpenAI wire format, same `/v1/chat/completions`, `/v1/models`, `/health`, same `--pcc` opt-in to Apple Private Cloud Compute. Reaches the on-device `SystemLanguageModel` (and, on macOS 27+, `PrivateCloudComputeLanguageModel`) via a small Swift helper binary spoken to over newline-JSON.
-
-> **Status:** M3 — feature complete for the OpenAI surface. On top of M2 (streaming, multi-turn, tool calling, MCP stdio), M3 adds structured outputs (`response_format: json_object` and `json_schema`), LaunchAgent auto-start via Homebrew services, and the `benchmark` command. Install via Homebrew for prebuilt binaries, or build from source with `pnpm install && (cd helper && swift build -c release)`.
+LaunchAgent auto-start via Homebrew services. Install via Homebrew for prebuilt binaries, or build from source with `pnpm install && (cd helper && swift build -c release)`.
 
 ## Architecture
 
@@ -73,11 +71,11 @@ node packages/afm-js/dist/main.js serve --port 11434
 ```
 afm-js/
 ├── packages/
-│   ├── core/        @afm-js/core     pure: Zod schemas, AfmError, validators, ModelBackend
-│   ├── cli/         @afm-js/cli      argv -> typed config (TODO M2)
+│   ├── core/        @afm-js/core     modeled afer Apple's own  Zod schemas, AfmError, validators, ModelBackend
+│   ├── cli/         @afm-js/cli      argv -> typed config
 │   ├── server/      @afm-js/server   Hono + HelperProcess bridge
 │   └── afm-js/      afm-js           umbrella, the npm bin
-└── helper/                            Swift sources for afm-fm-helper
+└── helper/                           Swift sources for afm-fm-helper
 ```
 
 ## Build (dev)
@@ -136,14 +134,14 @@ node packages/afm-js/bin/afm-js.js serve --port 11434 --mcp "python3 /path/to/mc
 
 ```bash
 afm-js serve [--port N --host H --token T --mcp "<cmd ...>" --debug]
-afm-js prompt "Your prompt here"        # one-shot, prints answer
+afm-js prompt "Your prompt here"         # one-shot, prints answer
 afm-js prompt --json "..."               # one-shot, JSON envelope
 echo "What is 2+2?" | afm-js prompt      # reads from stdin
 afm-js chat                              # multi-turn REPL with streaming
 afm-js chat --system "Be brief."         # …with a system prompt
 afm-js prompt --pcc "..."                # route to Private Cloud Compute
-afm-js benchmark                          # ttft + tokens/s over 3 fixed prompts
-afm-js benchmark --json                   # machine-readable report
+afm-js benchmark                         # ttft + tokens/s over 3 fixed prompts
+afm-js benchmark --json                  # machine-readable report
 ```
 
 ## Structured outputs
@@ -211,8 +209,9 @@ from the logged-in user's GUI session.
 
 ## Provenance
 
-The Swift app this ports is at [tariqwest/apfel-plus](https://github.com/tariqwest/apfel-plus); it in turn forks Franz's [Arthur-Ficial/apfel](https://github.com/Arthur-Ficial/apfel). Two libraries informed the design without being depended on:
+This ptoject was inspired by (but doesn't share code with) the following: 
 
+- [Arthur-Ficial/apfel](https://github.com/Arthur-Ficial/apfel) - a UNIX-style FoundationModels tool and server in Swift which I'd forked to [tariqwest/apfel-plus](https://github.com/tariqwest/apfel-plus) to add PCC.
 - [codybrom/tsfm](https://github.com/codybrom/tsfm) — koffi-FFI bindings for on-device FoundationModels; no PCC.
 - [apple/python-apple-fm-sdk](https://github.com/apple/python-apple-fm-sdk) — Apple's official Python SDK; clean session/model split.
 
