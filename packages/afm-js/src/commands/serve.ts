@@ -49,11 +49,14 @@ export const serveCommand = defineCommand({
     const debugFn = args.debug ? (msg: string) => process.stderr.write(`afm-js: ${msg}\n`) : undefined;
     const helperBinaryPath = resolveHelperPath(args.helper as string | undefined);
 
-    const port = args.port ? Number(args.port) : 11434;
+    // Support environment variables for port and token (useful for brew services)
+    const port = args.port ? Number(args.port) : (process.env.AFM_JS_PORT ? Number(process.env.AFM_JS_PORT) : 11434);
     if (!Number.isFinite(port) || port < 1 || port > 65535) {
       process.stderr.write(`afm-js: invalid --port value: ${args.port}\n`);
       process.exit(2);
     }
+
+    const token = (args.token as string | undefined) ?? process.env.AFM_JS_TOKEN ?? null;
 
     const mcpServers = parseMcpSpecs(args.mcp as string | undefined);
 
@@ -61,7 +64,7 @@ export const serveCommand = defineCommand({
       helperBinaryPath,
       port,
       host: (args.host as string | undefined) ?? "127.0.0.1",
-      token: (args.token as string | undefined) ?? null,
+      token,
       mcpServers,
       debug: debugFn,
       backend: args.backend ? { force: args.backend as "fm" | "helper" } : undefined,

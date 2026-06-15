@@ -139,12 +139,37 @@ function generateFormula(version, sha256, helperSha256) {
   end
 
   service do
-    run [opt_bin/"afm-js", "serve", "--port", "11434"]
+    run [opt_bin/"afm-js", "serve"]
     keep_alive true
     log_path var/"log/afm-js.log"
     error_log_path var/"log/afm-js-error.log"
     environment_variables AFM_JS_HELPER_PATH: opt_prefix/"libexec/afm-fm-helper"
     require_root false
+  end
+
+  def caveats
+    <<~EOS
+      afm-js requires:
+        - macOS 26 (Tahoe) or later
+        - Apple Silicon (M1+)
+        - Apple Intelligence enabled in System Settings
+
+      To start the server manually:
+        afm-js serve --port 11434
+
+      To configure the service with custom port or token:
+        brew services set-env afm-js AFM_JS_PORT 8080
+        brew services set-env afm-js AFM_JS_TOKEN your-secret-token
+        brew services restart afm-js
+
+      To run as a background service (auto-starts at login):
+        brew services start afm-js
+
+      Manage the service:
+        brew services stop afm-js
+        brew services restart afm-js
+        brew services info afm-js
+    EOS
   end
 
   test do
