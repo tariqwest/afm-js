@@ -17,7 +17,7 @@ export const serveCommand = defineCommand({
   args: {
     port: {
       type: "string",
-      description: "Bind port (default 11434).",
+      description: "Bind port (default 1337).",
     },
     host: {
       type: "string",
@@ -50,13 +50,13 @@ export const serveCommand = defineCommand({
     const helperBinaryPath = resolveHelperPath(args.helper as string | undefined);
 
     // Support environment variables for port and token (useful for brew services)
-    const port = args.port ? Number(args.port) : (process.env.AFM_JS_PORT ? Number(process.env.AFM_JS_PORT) : 11434);
+    const port = args.port ? Number(args.port) : (process.env.AFM_JS_PORT ? Number(process.env.AFM_JS_PORT) : 1337);
     if (!Number.isFinite(port) || port < 1 || port > 65535) {
       process.stderr.write(`afm-js: invalid --port value: ${args.port}\n`);
       process.exit(2);
     }
 
-    const token = (args.token as string | undefined) ?? process.env.AFM_JS_TOKEN ?? null;
+    const token = (args.token as string | undefined) ?? process.env.AFM_JS_TOKEN ?? "sk-apple-1337";
 
     const mcpServers = parseMcpSpecs(args.mcp as string | undefined);
 

@@ -34,7 +34,7 @@ brew tap tariqwest/tap
 brew install afm-js
 
 # Start the server
-afm-js serve --port 11434
+afm-js serve --port 1337
 ```
 
 #### From Source (Requires macOS 27 Xcode Beta)
@@ -50,7 +50,7 @@ pnpm install
 pnpm run build
 
 # Run directly from source
-node packages/afm-js/dist/main.js serve --port 11434
+node packages/afm-js/dist/main.js serve --port 1337
 ```
 
 ## Architecture
@@ -130,17 +130,17 @@ pnpm test
 
 **Homebrew installation:**
 ```bash
-afm-js serve --port 11434 --token sk-test --debug
+afm-js serve --port 1337 --token sk-apple-1337 --debug
 ```
 
 **From source:**
 ```bash
-node packages/afm-js/bin/afm-js.js serve --port 11434 --token sk-test --debug
+node packages/afm-js/bin/afm-js.js serve --port 1337 --token sk-apple-1337 --debug
 ```
 
 ```bash
-curl -X POST http://127.0.0.1:11434/v1/chat/completions \
-  -H "Authorization: Bearer sk-test" \
+curl -X POST http://127.0.0.1:1337/v1/chat/completions \
+  -H "Authorization: Bearer sk-apple-1337" \
   -H "Content-Type: application/json" \
   -d '{"model":"system","messages":[{"role":"user","content":"Say hi."}]}'
 ```
@@ -148,8 +148,8 @@ curl -X POST http://127.0.0.1:11434/v1/chat/completions \
 Streaming:
 
 ```bash
-curl -N -X POST http://127.0.0.1:11434/v1/chat/completions \
-  -H "Authorization: Bearer sk-test" -H "Content-Type: application/json" \
+curl -N -X POST http://127.0.0.1:1337/v1/chat/completions \
+  -H "Authorization: Bearer sk-apple-1337" -H "Content-Type: application/json" \
   -d '{"model":"system","stream":true,"messages":[{"role":"user","content":"Count to 5."}]}'
 ```
 
@@ -157,12 +157,12 @@ With a local MCP server (`--mcp` supports a colon-separated list of `<cmd> <arg�
 
 **Homebrew:**
 ```bash
-afm-js serve --port 11434 --mcp "python3 /path/to/mcp/server.py"
+afm-js serve --port 1337 --mcp "python3 /path/to/mcp/server.py"
 ```
 
 **From source:**
 ```bash
-node packages/afm-js/bin/afm-js.js serve --port 11434 --mcp "python3 /path/to/mcp/server.py"
+node packages/afm-js/bin/afm-js.js serve --port 1337 --mcp "python3 /path/to/mcp/server.py"
 ```
 
 ## CLI Commands
@@ -254,12 +254,12 @@ Start the OpenAI-compatible HTTP server.
 
 ```bash
 afm-js serve
-afm-js serve --port 11434 --host 0.0.0.0 --token sk-secret --debug
+afm-js serve --port 1337 --host 0.0.0.0 --token sk-apple-1337 --debug
 afm-js serve --mcp "python3 /path/to/mcp_server.py"  # attach stdio MCP server
 afm-js serve --helper /path/to/afm-fm-helper           # override binary path
 ```
 
-Flags: `--port N` (default 11434) · `--host ADDR` (default 127.0.0.1) · `--token SECRET` · `--debug` · `--mcp "CMD ARGS"` · `--helper PATH`
+Flags: `--port N` (default 1337) · `--host ADDR` (default 127.0.0.1) · `--token SECRET` (default sk-apple-1337) · `--debug` · `--mcp "CMD ARGS"` · `--helper PATH`
 
 ### Backend auto-selection
 
@@ -272,8 +272,8 @@ Force the helper with `--helper PATH` or `AFM_HELPER_PATH=...`. The `schema` com
 ### Structured outputs
 
 ```bash
-curl -X POST http://127.0.0.1:11434/v1/chat/completions \
-  -H "Authorization: Bearer sk-test" -H "Content-Type: application/json" \
+curl -X POST http://127.0.0.1:1337/v1/chat/completions \
+  -H "Authorization: Bearer sk-apple-1337" -H "Content-Type: application/json" \
   -d '{
     "model": "system",
     "response_format": {
@@ -310,7 +310,7 @@ brew services restart afm-js
 brew services stop afm-js
 ```
 
-The service runs on port 11434 by default. Logs are stored at:
+The service runs on port 1337 by default with token sk-apple-1337. Logs are stored at:
 - `/opt/homebrew/var/log/afm-js.log` (stdout)
 - `/opt/homebrew/var/log/afm-js-error.log` (stderr)
 

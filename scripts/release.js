@@ -143,7 +143,9 @@ function generateFormula(version, sha256, helperSha256) {
     keep_alive true
     log_path var/"log/afm-js.log"
     error_log_path var/"log/afm-js-error.log"
-    environment_variables AFM_JS_HELPER_PATH: opt_prefix/"libexec/afm-fm-helper"
+    environment_variables AFM_JS_HELPER_PATH: opt_prefix/"libexec/afm-fm-helper",
+                        AFM_JS_PORT: "1337",
+                        AFM_JS_TOKEN: "sk-apple-1337"
     require_root false
   end
 
@@ -155,8 +157,9 @@ function generateFormula(version, sha256, helperSha256) {
         - Apple Intelligence enabled in System Settings
 
       To start the server manually:
-        afm-js serve --port 11434
+        afm-js serve --port 1337
 
+      The service runs with default port 1337 and token sk-apple-1337.
       To configure the service with custom port or token:
         brew services set-env afm-js AFM_JS_PORT 8080
         brew services set-env afm-js AFM_JS_TOKEN your-secret-token
