@@ -10,103 +10,68 @@ afm-js follows semantic versioning: `MAJOR.MINOR.PATCH`
 - **MINOR**: New features (M1, M2, M3 milestones)
 - **PATCH**: Bug fixes and minor improvements
 
-## Release Checklist
+## Automated Release Process
 
-1. **Prepare the release**
+The release process is fully automated via the `release.js` script and GitHub Actions.
+
+### Local Release
+
+To perform a release locally:
+
+```bash
+# Set your GitHub token
+export GITHUB_TOKEN=ghp_xxxxxxxxxxxx
+
+# Run the release script
+pnpm run release
+```
+
+The script will:
+1. Build the project
+2. Build the Swift helper binary
+3. Create release tarballs
+4. Calculate SHA256 hashes
+5. Create GitHub release with artifacts
+6. Generate Homebrew formula
+7. Publish formula to Homebrew tap
+
+### CI/CD Release
+
+For automated releases via GitHub Actions:
+
+1. Push a version tag to trigger the workflow:
    ```bash
-   # Update version in packages/afm-js/package.json
-   # Update version references in other files if needed
-   
-   # Run full test suite
-   pnpm run build
-   pnpm test
+   git tag v1.0.0
+   git push origin v1.0.0
    ```
 
-2. **Build the release artifacts**
-   ```bash
-   # Build the helper binary
-   (cd helper && swift build -c release)
-   
-   # Create the prebuilt afm-js tarball (contains dist/ and bin/)
-   tar -czf afm-js-prebuilt-arm64-apple-darwin.tar.gz -C packages/afm-js dist bin
-   
-   # Create the helper binary tarball
-   tar -czf afm-fm-helper-arm64-apple-darwin.tar.gz -C helper/.build/release afm-fm-helper
-   ```
+2. GitHub Actions will:
+   - Build and test the project
+   - Run the release script
+   - Create GitHub release with artifacts
+   - Update Homebrew tap
 
-3. **Calculate SHA256 hashes**
-   ```bash
-   shasum -a 256 afm-js-prebuilt-arm64-apple-darwin.tar.gz afm-fm-helper-arm64-apple-darwin.tar.gz
-   ```
+### Dry Run Mode
 
-4. **Create GitHub Release**
-   - Create a new GitHub release with tag `v{VERSION}`
-   - Upload both tarballs:
-     - `afm-js-prebuilt-arm64-apple-darwin.tar.gz` (prebuilt Node.js packages)
-     - `afm-fm-helper-arm64-apple-darwin.tar.gz` (Swift helper binary)
+To test the release process without making actual changes:
 
-5. **Generate and update formula**
-   ```bash
-   # Generate formula with correct SHA256 values
-   AFM_JS_VERSION=0.0.1 \
-   AFM_JS_SHA256=xxx \
-   AFM_JS_HELPER_SHA256=yyy \
-   node scripts/generate-homebrew-formula.js
-   
-   # Or regenerate with placeholders and edit manually
-   pnpm run release:brew:generate
-   ```
-
-6. **Publish to Homebrew tap**
-   ```bash
-   # Set your GitHub token (if not already set)
-   export GITHUB_TOKEN=ghp_xxxxxxxxxxxx
-   
-   # Publish to tap
-   pnpm run release:brew:publish 0.0.1
-   
-   # Or manually:
-   git clone https://github.com/tariqwest/homebrew-tap.git
-   cp afm-js.rb homebrew-tap/Formula/
-   cd homebrew-tap
-   git add -A
-   git commit -m "afm-js 0.0.1"
-   git push origin main
-   ```
-
-7. **Verify installation**
-   ```bash
-   # Test the formula locally
-   brew install --build-from-source ./afm-js.rb
-   afm-js --help
-   
-   # Or after tap publication:
-   brew tap tariqwest/tap
-   brew install afm-js
-   afm-js serve --port 11434
-   
-   # Test brew services
-   brew services start afm-js
-   brew services info afm-js
-   brew services stop afm-js
-   ```
+```bash
+DRY_RUN=true GITHUB_TOKEN=test pnpm run release
+```
 
 ## Available Scripts
 
-- `pnpm run release:prepare` — Build, test, and generate formula
-- `pnpm run release:brew:generate` — Generate Homebrew formula only
-- `pnpm run release:brew:publish [version]` — Publish formula to tap
+- `pnpm run release` — Full release process (build, test, GitHub release, Homebrew tap)
+- `pnpm run ci` — Build, test, and typecheck (used by CI)
 
 ## Environment Variables
 
 | Variable | Description |
 |----------|-------------|
-| `AFM_JS_VERSION` | Override version for formula generation |
-| `AFM_JS_SHA256` | Source tarball SHA256 |
-| `AFM_JS_HELPER_SHA256` | Helper binary SHA256 |
-| `GITHUB_TOKEN` | GitHub personal access token for tap push |
+| `GITHUB_TOKEN` | GitHub personal access token (required) |
+| `DRY_RUN` | Set to "true" to skip actual GitHub operations |
 | `TAP_REPO` | Tap repository (default: `tariqwest/homebrew-tap`) |
-| `TAP_DIR` | Local directory for tap clone |
+| `TAP_DIR` | Local directory for tap clone (default: `~/.cache/afm-js-tap`) |
 
 ## Homebrew Tap Structure
 

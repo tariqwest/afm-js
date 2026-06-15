@@ -423,11 +423,6 @@ See the [CHANGELOG](https://github.com/${REPO}/blob/main/CHANGELOG.md) for detai
     // Step 8: Generate Homebrew formula with SHA256 hashes
     logStep("Generating Homebrew formula...");
     const formulaContent = generateFormula(VERSION, afmJsSha256, helperSha256);
-    
-    // Write formula to file for reference
-    const formulaPath = join(ROOT_DIR, "afm-js.rb");
-    writeFileSync(formulaPath, formulaContent);
-    logInfo(`Formula written to: ${formulaPath}`);
 
     // Step 9: Publish to tap
     await publishToTap(VERSION, formulaContent);
