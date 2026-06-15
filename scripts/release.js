@@ -178,7 +178,9 @@ async function githubRequest(endpoint, options = {}) {
     throw new Error(`GitHub API error: ${response.status} ${response.statusText}\n${error}`);
   }
 
-  return response.json();
+  if (response.status === 204) return null;
+  const text = await response.text();
+  return text ? JSON.parse(text) : null;
 }
 
 async function createRelease(tag, name, body) {
@@ -189,17 +191,35 @@ async function createRelease(tag, name, body) {
     return { upload_url: "https://uploads.github.com/repos/tariqwest/afm-js/releases/123/assets{?name}" };
   }
 
-  return githubRequest("/releases", {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({
-      tag_name: tag,
-      name: name,
-      body: body,
-      draft: false,
-      prerelease: false,
-    }),
-  });
+  try {
+    return await githubRequest("/releases", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        tag_name: tag,
+        name: name,
+        body: body,
+        draft: false,
+        prerelease: false,
+      }),
+    });
+  } catch (error) {
+    // If the release already exists (e.g. from a previous failed run),
+    // reuse it and clean up any partially-uploaded assets so re-uploads
+    // don't 422 with "already_exists".
+    if (/already_exists|already exists/i.test(error.message)) {
+      logWarn(`Release ${tag} already exists, reusing existing release...`);
+      const existing = await githubRequest(`/releases/tags/${tag}`);
+      if (Array.isArray(existing.assets) && existing.assets.length > 0) {
+        for (const asset of existing.assets) {
+          logWarn(`Deleting existing asset ${asset.name} (id=${asset.id})...`);
+          await githubRequest(`/releases/assets/${asset.id}`, { method: "DELETE" });
+        }
+      }
+      return existing;
+    }
+    throw error;
+  }
 }
 
 async function uploadAsset(release, filePath, contentType) {
@@ -211,7 +231,7 @@ async function uploadAsset(release, filePath, contentType) {
     return { browser_download_url: `https://github.com/${REPO}/releases/download/v${VERSION}/${fileName}` };
   }
 
-  const uploadUrl = release.upload_url.replace("{?name}", `?name=${fileName}`);
+  const uploadUrl = release.upload_url.replace(/\{\?[^}]*\}$/, "") + `?name=${encodeURIComponent(fileName)}`;
   const fileStream = createReadStream(filePath);
   const fileBuffer = await new Promise((resolve, reject) => {
     const chunks = [];
