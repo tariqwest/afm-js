@@ -1,15 +1,21 @@
 {
   "name": "@afm-js/cli",
-  "version": "0.0.2",
+  "version": "0.0.3",
   "description": "afm-js CLI argument parsing — pure argv -> typed config.",
   "license": "MIT",
   "type": "module",
   "main": "./dist/index.js",
   "types": "./dist/index.d.ts",
   "exports": {
-    ".": { "types": "./dist/index.d.ts", "default": "./dist/index.js" }
+    ".": {
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
+    }
   },
-  "files": ["dist", "README.md"],
+  "files": [
+    "dist",
+    "README.md"
+  ],
   "scripts": {
     "build": "tsc --build"
   },

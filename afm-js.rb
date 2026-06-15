@@ -1,18 +1,18 @@
 class AfmJs < Formula
   desc "Apple Foundation Models for Node.js — OpenAI-compatible HTTP server + CLI"
   homepage "https://github.com/tariqwest/afm-js"
-  url "https://github.com/tariqwest/afm-js/releases/download/v0.0.2/afm-js-prebuilt-arm64-apple-darwin.tar.gz"
-  sha256 "86a35f2d13acc75b8c2b22e806c801fcfe6777836bdf05a09ec6ba2616789a0f"
+  url "https://github.com/tariqwest/afm-js/releases/download/v0.0.3/afm-js-prebuilt-arm64-apple-darwin.tar.gz"
+  sha256 "c9287f86d76fa8316233c5b8e758cc0493e6b6d60c722627581823735bea3f2b"
   license "MIT"
-  version "0.0.2"
+  version "0.0.3"
 
   depends_on "node"
   depends_on :macos
   depends_on arch: :arm64
 
   resource "afm-fm-helper" do
-    url "https://github.com/tariqwest/afm-js/releases/download/v0.0.2/afm-fm-helper-arm64-apple-darwin.tar.gz"
-    sha256 "8b43671514f75be4efa387575bded3422b29ab3bfdfbab8dd2e202df6f21f897"
+    url "https://github.com/tariqwest/afm-js/releases/download/v0.0.3/afm-fm-helper-arm64-apple-darwin.tar.gz"
+    sha256 "a976cc4c8ed4ddfb95f58ac313d2d6626189379d328bb9e4eb9000f4ac866433"
   end
 
   def install

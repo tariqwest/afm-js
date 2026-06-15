@@ -1,6 +1,6 @@
 {
   "name": "afm-js",
-  "version": "0.0.2",
+  "version": "0.0.3",
   "description": "Apple Foundation Models for Node.js — OpenAI-compatible HTTP server and CLI for Apple Intelligence.",
   "license": "MIT",
   "author": "Tariq West",
@@ -10,12 +10,20 @@
   "bin": {
     "afm-js": "./bin/afm-js.js"
   },
-  "files": ["dist", "bin", "README.md"],
+  "files": [
+    "dist",
+    "bin",
+    "README.md"
+  ],
   "engines": {
     "node": ">=20"
   },
-  "os": ["darwin"],
-  "cpu": ["arm64"],
+  "os": [
+    "darwin"
+  ],
+  "cpu": [
+    "arm64"
+  ],
   "scripts": {
     "build": "tsc --build"
   },
@@ -25,6 +33,5 @@
     "@afm-js/server": "workspace:*",
     "citty": "^0.1.6"
   },
-  "optionalDependencies": {
-  }
+  "optionalDependencies": {}
 }
