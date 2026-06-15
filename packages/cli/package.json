@@ -1,7 +1,7 @@
 {
   "name": "@afm-js/cli",
-  "version": "0.0.3",
-  "description": "afm-js CLI argument parsing — pure argv -> typed config.",
+  "version": "0.0.4",
+  "description": "Command-line interface parser for afm-js — converts command-line arguments into typed configuration objects for all afm-js commands.",
   "license": "MIT",
   "type": "module",
   "main": "./dist/index.js",
