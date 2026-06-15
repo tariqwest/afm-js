@@ -1,10 +1,44 @@
-# afm-js
+# AFM-JS
 
-Apple Foundation Models for Node.js. OpenAI-compatible HTTP server and CLI for Apple Intelligence on macOS. 
+Apple Foundation Models in your local JS app, or anywhere an OpenAI-API is accepted. Access on-device `SystemLanguageModel` (macOS 26+) and remote Private Cloud Compute (PCC) `PrivateCloudComputeLanguageModel` (macOS 27+) over IPC with a lightweight Swift helper app that directly implements the `FoundationModels` API or Apple's own implementation via their `fm` daemon/service built in to macOS.
 
-Enables access to the on-device `SystemLanguageModel` (macOS 26+) and PCC `PrivateCloudComputeLanguageModel` (macOS 27+) via unix socket communication with Apple's `fm` client or a small Swift helper app that directly implements the FoundationModels API. 
+* SDK `afm-js/core` + `swift` helpers for integrating Apple's `FoundationModels` into your JS/TS app or script
+* CLI `afm-js/cli` for using Apple Intelligence on macOS from the terminal, or via bash or applescript
+* SERVER `afm-js/server` for using Apple's local and PCC models in your IDE, agent, harness, or mcp server
 
-Provides both a CLI matching Apple's `fm` terminal client semantics and a standalone JS-SDK (`@afm-js/core`) for programmatic use in any JS (node.js, deno or bun) application.
+
+Note: Accessing the PCC model uses the AI PCC quota included in the logged-in user's iCloud membership.
+
+## Installation
+
+#### Homebrew (Recommended)
+
+```bash
+# Add the tap
+brew tap tariqwest/tap
+
+# Install afm-js
+brew install afm-js
+
+# Start the server
+afm-js serve --port 11434
+```
+
+#### From Source (Requires macOS 27 Xcode Beta)
+
+```bash
+# Clone the repository
+git clone https://github.com/tariqwest/afm-js.git
+cd afm-js
+
+# Install dependencies and build
+pnpm install
+(cd helper && swift build -c release)
+pnpm run build
+
+# Run directly from source
+node packages/afm-js/dist/main.js serve --port 11434
+```
 
 ## Architecture
 
@@ -32,7 +66,7 @@ Provides both a CLI matching Apple's `fm` terminal client semantics and a standa
 └─────────────┼────────────────────────────┼──────────────────────────┘
               ▼                            ▼
 ┌─────────────────────────┐   ┌─────────────────────────────────────┐
-│  afm-fm-helper          │   │  Apple fm daemon                    │
+│  afm-fm-helper*         │   │  Apple fm daemon                    │
 │  (Swift, macOS 26+)     │   │  (System, macOS 27+)                │
 │                         │   │                                     │
 │  serve --socket <path>  │   │  /usr/bin/fm serve --socket <path>  │
@@ -47,37 +81,7 @@ Provides both a CLI matching Apple's `fm` terminal client semantics and a standa
 └─────────────────────────┘   └─────────────────────────────────────┘
 ```
 
-**Swift Helper:** `afm-fm-helper` implements the official, Apple-approved way to use `FoundationModels` in 3rd-party apps. It is spawned by the main server process and serves an OpenAI-compatible HTTP/1.1 API over a Unix domain socket, mirroring how Apple's own `fm` daemon and client work. Currently, the helper backend will not work with PCC as the binary needs to be signed by an Apple developer ID with a specific PCC entitlement. This will be updated once Apple approves the necessary entitlements for this author's developer id. In the meantime, if you have an apple developer account you can build and sign the helper binary yourself for use on your local machine.
-## Installation
-
-### Homebrew (Recommended)
-
-```bash
-# Add the tap
-brew tap tariqwest/tap
-
-# Install afm-js
-brew install afm-js
-
-# Start the server
-afm-js serve --port 11434
-```
-
-### From Source
-
-```bash
-# Clone the repository
-git clone https://github.com/tariqwest/afm-js.git
-cd afm-js
-
-# Install dependencies and build
-pnpm install
-(cd helper && swift build -c release)
-pnpm run build
-
-# Run directly from source
-node packages/afm-js/dist/main.js serve --port 11434
-```
+`afm-fm-helper` implements the official, Apple-approved way to use `FoundationModels` in 3rd-party apps. It is spawned by the main server process and serves an OpenAI-compatible HTTP/1.1 API over a Unix domain socket, mirroring how Apple's own `fm` daemon and client work. Currently, the helper backend will not work with PCC as the binary needs to be signed by an Apple developer ID with a specific PCC entitlement. This will be updated once Apple approves the necessary entitlements for this author's developer id. In the meantime, if you have an apple developer account you can build and sign the helper binary yourself for use on your local machine.
 
 ## Layout
 
