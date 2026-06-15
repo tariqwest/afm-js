@@ -1,41 +1,52 @@
 # afm-js
 
-Apple Foundation Models for Node.js. OpenAI-compatible HTTP server and CLI for Apple Intelligence on macOS. Reaches the on-device `SystemLanguageModel` (and, on macOS 27+, `PrivateCloudComputeLanguageModel`) via Apple's FM client if available, and a small Swift helper binary if not.
+Apple Foundation Models for Node.js. OpenAI-compatible HTTP server and CLI for Apple Intelligence on macOS. 
 
-Provides both a CLI matching Apple's `/usr/bin/fm` semantics and a standalone SDK (`@afm-js/core`) for programmatic use.
+Enables access to the on-device `SystemLanguageModel` (macOS 26+) and PCC `PrivateCloudComputeLanguageModel` (macOS 27+) via unix socket communication with Apple's `fm` client or a small Swift helper app that directly implements the FoundationModels API. 
 
-LaunchAgent auto-start via Homebrew services. Install via Homebrew for prebuilt binaries, or build from source.
+Provides both a CLI matching Apple's `fm` terminal client semantics and a standalone JS-SDK (`@afm-js/core`) for programmatic use in any JS (node.js, deno or bun) application.
 
 ## Architecture
 
 ```
-┌─────────────────────────────────────────┐
-│  afm-js (Node 20+, TypeScript)          │
-│  ┌────────────────────────────────────┐ │
-│  │  @afm-js/server (Hono + Node)      │ │
-│  │  /v1/chat/completions  /v1/models  │ │
-│  │  /health                /v1/logs   │ │
-│  └─────────────┬──────────────────────┘ │
-│                │ newline-JSON over      │
-│                │ stdin/stdout           │
-│                ▼                        │
-│  ┌────────────────────────────────────┐ │
-│  │  HelperProcess                     │ │
-│  │  spawns afm-fm-helper, multiplexes │ │
-│  │  sessions, frames lines            │ │
-│  └────────────────────────────────────┘ │
-└─────────────────┼──────────────────────┘
-                  ▼
-┌─────────────────────────────────────────┐
-│  afm-fm-helper (Swift, macOS 26+)       │
-│  imports FoundationModels               │
-│    SystemLanguageModel                  │
-│    PrivateCloudComputeLanguageModel     │
-│    LanguageModelSession                 │
-└─────────────────────────────────────────┘
+┌──────────────────────────────────────────────────────────────────────┐
+│  afm-js (Node 20+, TypeScript)                                       │
+│                                                                      │
+│  ┌──────────────────────────────────────────────────────────────┐   │
+│  │  @afm-js/server (Hono + Node)                                │   │
+│  │  /v1/chat/completions  /v1/models  /health  /v1/logs         │   │
+│  └──────────────────────────┬───────────────────────────────────┘   │
+│                             │                                        │
+│                   UnifiedBackend (auto-selects)                      │
+│                   ┌─────────┴──────────┐                            │
+│                   │                    │                             │
+│                   ▼                    ▼                             │
+│  ┌─────────────────────┐  ┌────────────────────────────┐            │
+│  │  HelperProcess      │  │  FM Client backend         │            │
+│  │  (backend A)        │  │  (backend B)               │            │
+│  │                     │  │                            │            │
+│  │  newline-JSON over  │  │  unix socket / IPC to      │            │
+│  │  stdin/stdout;      │  │  Apple's fm daemon         │            │
+│  │  multiplexes        │  │  (/usr/bin/fm)             │            │
+│  │  sessions           │  │                            │            │
+│  └──────────┬──────────┘  └──────────────┬─────────────┘            │
+└─────────────┼──────────────────────────── ┼────────────────────────┘
+              ▼                             ▼
+┌─────────────────────────┐   ┌─────────────────────────────────────┐
+│  afm-fm-helper          │   │  Apple fm daemon (system)           │
+│  (Swift, macOS 26+)     │   │  /usr/bin/fm                        │
+│                         │   │                                     │
+│  FoundationModels API:  │   │  FoundationModels API:              │
+│    SystemLanguageModel  │   │    SystemLanguageModel              │
+│    LanguageModelSession │   │    PrivateCloudComputeLanguageModel │
+│                         │   │    LanguageModelSession             │
+│  ⚠ on-device only;      │   │                                     │
+│    PCC requires Apple   │   │  ✓ supports PCC (system-signed)    │
+│    dev entitlement      │   │                                     │
+└─────────────────────────┘   └─────────────────────────────────────┘
 ```
 
-**Why a Swift helper instead of FFI:** the only path that gives day-one PCC support. The helper imports `FoundationModels` directly and ships as a prebuilt arm64 binary; Node spawns it and multiplexes requests over a tiny JSON protocol. Process isolation also keeps Swift 6's strict concurrency out of Node's event loop.
+**Swift Helper:** `afm-fm-helper` is a backend implementing the apple-approved way to use `FoundationModels` in 3rd party apps. It ships as a prebuilt arm64 binary that is spawned by Node and multiplexes requests over a tiny JSON protocol. As of today (2026/6/15), it will not work with PCC as the binary needs to be signed by an apple developer ID with a specific PCC entitlement. This will be updated once Apple approves the necessary entitlements for my apple developer ID.
 
 ## Installation
 
@@ -73,7 +84,7 @@ node packages/afm-js/dist/main.js serve --port 11434
 ```
 afm-js/
 ├── packages/
-│   ├── core/        @afm-js/core     SDK modeled after Apple's Python SDK
+│   ├── core/        @afm-js/core    modeled after Apple's Python SDK
 │   │   ├── src/sdk/                 LanguageModel, LanguageModelSession, AfmClient
 │   │   ├── src/bridge/              HelperProcess, UnifiedBackend
 │   │   └── examples/                SDK usage examples
@@ -139,49 +150,97 @@ node packages/afm-js/bin/afm-js.js serve --port 11434 --mcp "python3 /path/to/mc
 
 ## CLI Commands
 
-The afm-js CLI mirrors Apple's `/usr/bin/fm` interface:
+The afm-js CLI mirrors Apple's `fm` client interface:
+
+### respond
+
+Generate a one-shot response. Prompt can be a positional argument or piped via stdin.
 
 ```bash
-# Generate a response (one-shot)
 afm-js respond "Your prompt here"
 afm-js respond --model pcc "Use Private Cloud Compute"
 afm-js respond --stream "Stream the response as it's generated"
-afm-js respond --json "Emit JSON envelope"
+afm-js respond --instructions "Be concise." "Explain recursion"
+afm-js respond --json "Emit JSON envelope {model, content, finish_reason, usage}"
+afm-js respond --temperature 0.8 --max-tokens 512 "Be creative"
+afm-js respond --seed 42 "Reproducible output"
 echo "What is 2+2?" | afm-js respond     # reads from stdin
-
-# Interactive chat REPL
-afm-js chat                              # start interactive session
-afm-js chat --instructions "Be brief."  # with system instructions
-afm-js chat --model pcc                 # use PCC
-
-# Utility commands
-afm-js token-count "Hello world"        # count tokens without generating
-afm-js available                        # check if FM is available
-afm-js quota-usage                    # check PCC quota
-afm-js schema object --name Person --string name --int age  # generate JSON schema
-
-# HTTP server
-afm-js serve [--port N --host H --token T --mcp "<cmd ...>" --debug]
 ```
 
-### CLI Examples
+Flags: `--model system|pcc` · `--stream` · `--instructions TEXT` · `--json` · `--temperature 0-1` · `--max-tokens N` · `--seed N` · `--helper PATH`
+
+### chat
+
+Interactive multi-turn REPL. Always streams responses. Requires a TTY. Exit with Ctrl-D.
 
 ```bash
-# Simple response
-afm-js respond "What is Swift?"
-
-# Streaming with PCC
-afm-js respond --model pcc --stream "Summarize this article"
-
-# Chat with instructions
-afm-js chat --instructions "You are a coding assistant"
-
-# Check availability
-afm-js available
-
-# Token count for budgeting
-afm-js token-count "This is a test prompt" --instructions "You are helpful"
+afm-js chat
+afm-js chat --instructions "You are a coding assistant."
+afm-js chat --model pcc
 ```
+
+Flags: `--model system|pcc` · `--instructions TEXT` · `--helper PATH`
+
+### token-count
+
+Count tokens without generating a response. Outputs total token count to stdout; use `--json` for a breakdown.
+
+```bash
+afm-js token-count "This is a test prompt"
+afm-js token-count --instructions "Be helpful" "Count these tokens"
+afm-js token-count --json "Hello world"  # => {prompt_tokens, instructions_tokens, total_tokens}
+```
+
+Flags: `--instructions TEXT` · `--json` · `--helper PATH`
+
+### available
+
+Check if Foundation Models are available on this device. Exits 0 if available, 1 if not (scriptable).
+
+```bash
+afm-js available
+afm-js available --json   # => {available: true|false, status: "available"|...}
+```
+
+Status values: `available` · `appleIntelligenceNotEnabled` · `deviceNotEligible` · `modelNotReady`
+
+### quota-usage
+
+Check PCC quota usage.
+
+```bash
+afm-js quota-usage
+afm-js quota-usage --json  # => {used, limit, remaining}
+```
+
+### schema
+
+Generate a JSON schema for use with structured output. Fields of the same type can be comma-separated.
+
+```bash
+afm-js schema object --name Person --string name --int age
+afm-js schema object --name Product --string "name,sku" --number price --bool inStock
+afm-js schema object --name Event --string title --string "location:where it happens" --json
+```
+
+Flags: `--name TEXT` · `--description TEXT` · `--string FIELD[,FIELD...]` · `--int FIELD[,FIELD...]` · `--number FIELD[,FIELD...]` · `--bool FIELD[,FIELD...]` · `--json`
+
+### serve
+
+Start the OpenAI-compatible HTTP server.
+
+```bash
+afm-js serve
+afm-js serve --port 11434 --host 0.0.0.0 --token sk-secret --debug
+afm-js serve --mcp "python3 /path/to/mcp_server.py"  # attach stdio MCP server
+afm-js serve --helper /path/to/afm-fm-helper           # override binary path
+```
+
+Flags: `--port N` (default 11434) · `--host ADDR` (default 127.0.0.1) · `--token SECRET` · `--debug` · `--mcp "CMD ARGS"` · `--helper PATH`
+
+### Common options
+
+All commands that communicate with the model accept `--helper PATH` to override the `afm-fm-helper` binary. You can also set `AFM_HELPER_PATH` in the environment instead.
 
 ## Structured outputs
 
@@ -205,10 +264,6 @@ curl -X POST http://127.0.0.1:11434/v1/chat/completions \
   }'
 # => {"name":"Alice","age":30}
 ```
-
-M3 implements this via prompt-engineered schema injection plus
-`JSONFenceStripper` post-processing. A future M4 will switch to the
-helper's native `GenerationSchema`-guided generation for hard guarantees.
 
 ## Homebrew Services (LaunchAgent)
 
@@ -317,14 +372,15 @@ npx ts-node examples/simple_inference.ts
 
 ## Models
 
-- `system` — on-device, 4096-token context, default.
-- `pcc` — Apple Private Cloud Compute, 32K context, requires macOS 27+. Returns a typed 503 with a clear remediation message on ineligible hosts.
+- `system` — on-device `SystemLanguageModel`, 4096-token context, default. Requires macOS 26+.
+- `pcc` — `PrivateCloudComputeLanguageModel` via Apple Private Cloud Compute, 32K context. Requires macOS 27+. Returns a typed 503 with a clear remediation message on ineligible hosts. Currently only available via the FM Client backend (requires Apple-signed binary with PCC entitlement for the helper backend).
 
 ## Requirements
 
 - macOS 26 (Tahoe) or later, Apple Silicon (M1+).
 - Apple Intelligence enabled in System Settings.
 - Node 20+.
+- For PCC: macOS 27+ with PCC access provisioned.
 
 ## Provenance
 
