@@ -1,13 +1,26 @@
 # AFM-JS
 
-Apple Foundation Models in your local JS app, or anywhere an OpenAI-API is accepted. Access on-device `SystemLanguageModel` (macOS 26+) and remote Private Cloud Compute (PCC) `PrivateCloudComputeLanguageModel` (macOS 27+) over IPC with a lightweight Swift helper app that directly implements the `FoundationModels` API or Apple's own implementation via their `fm` daemon/service built in to macOS.
+Apple Foundation Models in your local JS app, or anywhere an OpenAI-API is accepted. Access on-device (macOS 26+) and remote Private Cloud Compute (PCC) (macOS 27+) over IPC with either (a) the lightweight Swift helper that directly implements the `FoundationModels` API or (b) Apple's own implementation via their `fm` daemon/service built in to macOS.
+
+### Features
 
 * SDK `afm-js/core` + `swift` helpers for integrating Apple's `FoundationModels` into your JS/TS app or script
 * CLI `afm-js/cli` for using Apple Intelligence on macOS from the terminal, or via bash or applescript
 * SERVER `afm-js/server` for using Apple's local and PCC models in your IDE, agent, harness, or mcp server
 
+### Models
 
-Note: Accessing the PCC model uses the AI PCC quota included in the logged-in user's iCloud membership.
+- `system` aka `SystemLanguageModel`, via your Mac's GPU, 4096-token context, default. Requires macOS 26+.
+- `pcc` aka `PrivateCloudComputeLanguageModel`, via your iCloud Account -> Apple Private Cloud Compute, 32K context. Requires macOS 27+.
+
+Note: Using the PCC model uses the AI PCC quota included in the logged-in user's iCloud membership.
+
+## Requirements
+
+- macOS 26 (Tahoe) or later, Apple Silicon (M1+)
+- Apple Intelligence enabled in System Settings
+- Node 20+
+- For PCC: macOS 27+
 
 ## Installation
 
@@ -156,7 +169,7 @@ node packages/afm-js/bin/afm-js.js serve --port 11434 --mcp "python3 /path/to/mc
 
 The afm-js CLI mirrors Apple's `fm` client interface:
 
-### respond ✓ both backends
+### respond 
 
 Generate a one-shot response. Prompt can be a positional argument or piped via stdin.
 
@@ -173,7 +186,7 @@ echo "What is 2+2?" | afm-js respond     # reads from stdin
 
 Flags: `--model system|pcc` · `--stream` · `--instructions TEXT` · `--json` · `--temperature 0-1` · `--max-tokens N` · `--seed N` · `--helper PATH`
 
-### chat ✓ both backends
+#### chat
 
 Interactive multi-turn REPL. Always streams responses. Requires a TTY. Exit with Ctrl-D.
 
@@ -185,7 +198,7 @@ afm-js chat --model pcc
 
 Flags: `--model system|pcc` · `--instructions TEXT` · `--helper PATH`
 
-### token-count ✓ both backends
+#### token-count
 
 Count tokens without generating a response. Outputs total token count to stdout; use `--json` for a breakdown.
 
@@ -199,7 +212,7 @@ afm-js token-count --json "Hello world"  # => {prompt_tokens, instructions_token
 
 Flags: `--instructions TEXT` · `--json` · `--helper PATH`
 
-### available ✓ both backends
+#### available
 
 Check if Foundation Models are available on this device. Exits 0 if available, 1 if not (scriptable).
 
@@ -210,16 +223,20 @@ afm-js available --json   # => {available: true|false, status: "available"|...}
 
 Status values: `available` · `appleIntelligenceNotEnabled` · `deviceNotEligible` · `modelNotReady`
 
-### quota-usage ⚠ FM Client backend only
 
-Check PCC quota usage. Requires the FM Client backend (`/usr/bin/fm` on macOS 27+). Prints a descriptive message when run against the helper backend.
+
+
+#### quota-usage 
+
+Check PCC quota usage. Requires the FM Client backend (`/usr/bin/fm` on macOS 27+). Prints a descriptive message when run against the helper backend. 
+⚠ FM Client backend only
 
 ```bash
 afm-js quota-usage
 afm-js quota-usage --json  # => {used, limit, remaining}
 ```
 
-### schema ✓ no backend required
+#### schema
 
 Generate a JSON schema for use with structured output. Runs locally — no model connection needed. Fields of the same type can be comma-separated.
 
@@ -231,7 +248,7 @@ afm-js schema object --name Event --string title --string "location:where it hap
 
 Flags: `--name TEXT` · `--description TEXT` · `--string FIELD[,FIELD...]` · `--int FIELD[,FIELD...]` · `--number FIELD[,FIELD...]` · `--bool FIELD[,FIELD...]` · `--json`
 
-### serve ✓ both backends
+#### serve
 
 Start the OpenAI-compatible HTTP server.
 
@@ -252,7 +269,7 @@ All commands auto-select the best available backend at startup:
 
 Force the helper with `--helper PATH` or `AFM_HELPER_PATH=...`. The `schema` command requires no backend.
 
-## Structured outputs
+### Structured outputs
 
 ```bash
 curl -X POST http://127.0.0.1:11434/v1/chat/completions \
@@ -297,12 +314,11 @@ The service runs on port 11434 by default. Logs are stored at:
 - `/opt/homebrew/var/log/afm-js.log` (stdout)
 - `/opt/homebrew/var/log/afm-js-error.log` (stderr)
 
-A LaunchAgent (not Daemon) because Apple Intelligence is only reachable
-from the logged-in user's GUI session.
+This is run as a LaunchAgent because Apple Intelligence is only reachable from the logged-in user's GUI session.
 
 ## SDK Usage (@afm-js/core)
 
-Use the SDK directly in your Node.js applications for programmatic access to Apple Foundation Models.
+Use the SDK directly in your Node.js applications for programmatic access to Apple Foundation Models. This modeled after Apple's official [apple/python-apple-fm-sdk](https://github.com/apple/python-apple-fm-sdk).
 
 ### Simple Inference
 
@@ -369,7 +385,7 @@ async function main() {
 
 ### SDK Examples
 
-See `packages/core/examples/` for complete working examples:
+See for complete working examples:
 - `simple_inference.ts` — Basic non-streaming inference
 - `streaming_example.ts` — Streaming response handling
 - `transcript_processing.ts` — Processing transcripts from Swift apps
@@ -380,25 +396,13 @@ cd packages/core
 npx ts-node examples/simple_inference.ts
 ```
 
-## Models
-
-- `system` — on-device `SystemLanguageModel`, 4096-token context, default. Requires macOS 26+.
-- `pcc` — `PrivateCloudComputeLanguageModel` via Apple Private Cloud Compute, 32K context. Requires macOS 27+. Returns a typed 503 with a clear remediation message on ineligible hosts. Currently only available via the FM Client backend (requires Apple-signed binary with PCC entitlement for the helper backend).
-
-## Requirements
-
-- macOS 26 (Tahoe) or later, Apple Silicon (M1+).
-- Apple Intelligence enabled in System Settings.
-- Node 20+.
-- For PCC: macOS 27+ with PCC access provisioned.
-
-## Provenance
+## Thanks & Inspiration
 
 This ptoject was inspired by (but doesn't share code with) the following: 
 
-- [Arthur-Ficial/apfel](https://github.com/Arthur-Ficial/apfel) - a UNIX-style FoundationModels tool and server in Swift which I'd forked to [tariqwest/apfel-plus](https://github.com/tariqwest/apfel-plus) to add PCC.
-- [codybrom/tsfm](https://github.com/codybrom/tsfm) — koffi-FFI bindings for on-device FoundationModels; no PCC.
-- [apple/python-apple-fm-sdk](https://github.com/apple/python-apple-fm-sdk) — Apple's official Python SDK; clean session/model split.
+- [Arthur-Ficial/apfel](https://github.com/Arthur-Ficial/apfel) - UNIX-style FoundationModels tool, forked to add PCC here [tariqwest/apfel-plus](https://github.com/tariqwest/apfel-plus).
+- [codybrom/tsfm](https://github.com/codybrom/tsfm) — Koffi-FFI bindings for on-device FoundationModels; no PCC.
+- [apple/python-apple-fm-sdk](https://github.com/apple/python-apple-fm-sdk) — Apple's official Python SDK.
 
 ## License
 
