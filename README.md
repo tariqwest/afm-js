@@ -48,7 +48,6 @@ Provides both a CLI matching Apple's `fm` terminal client semantics and a standa
 ```
 
 **Swift Helper:** `afm-fm-helper` implements the official, Apple-approved way to use `FoundationModels` in 3rd-party apps. It is spawned by the main server process and serves an OpenAI-compatible HTTP/1.1 API over a Unix domain socket, mirroring how Apple's own `fm` daemon and client work. Currently, the helper backend will not work with PCC as the binary needs to be signed by an Apple developer ID with a specific PCC entitlement. This will be updated once Apple approves the necessary entitlements for this author's developer id. In the meantime, if you have an apple developer account you can build and sign the helper binary yourself for use on your local machine.
-
 ## Installation
 
 ### Homebrew (Recommended)
