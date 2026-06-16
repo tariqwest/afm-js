@@ -391,40 +391,57 @@ async function main() {
   }
 
   // Update all package.json files to the release version
-  if (!DRY_RUN) {
-    logStep(`Updating all package.json files to version ${VERSION}...`);
-    const packageFiles = [
-      join(ROOT_DIR, "package.json"),
-      join(ROOT_DIR, "packages/afm-js/package.json"),
-      join(ROOT_DIR, "packages/core/package.json"),
-      join(ROOT_DIR, "packages/cli/package.json"),
-      join(ROOT_DIR, "packages/server/package.json"),
-    ];
+  const packageFiles = [
+    join(ROOT_DIR, "package.json"),
+    join(ROOT_DIR, "packages/afm-js/package.json"),
+    join(ROOT_DIR, "packages/core/package.json"),
+    join(ROOT_DIR, "packages/cli/package.json"),
+    join(ROOT_DIR, "packages/server/package.json"),
+  ];
 
-    for (const pkgFile of packageFiles) {
-      const pkg = JSON.parse(readFileSync(pkgFile, "utf-8"));
-      pkg.version = VERSION;
-      writeFileSync(pkgFile, JSON.stringify(pkg, null, 2) + "\n");
-      logInfo(`Updated ${pkgFile}`);
+  // Save original package.json content for rollback
+  const originalPackageContents = new Map();
+  for (const pkgFile of packageFiles) {
+    originalPackageContents.set(pkgFile, readFileSync(pkgFile, "utf-8"));
+  }
+
+  // Rollback function to restore original package.json files
+  const rollbackPackageVersions = () => {
+    logWarn("Rolling back package.json version changes...");
+    for (const [pkgFile, originalContent] of originalPackageContents) {
+      writeFileSync(pkgFile, originalContent);
+      logInfo(`Restored ${pkgFile}`);
     }
-  } else {
-    logWarn("DRY RUN: Skipping package.json version updates");
-  }
+  };
 
-  // Detect if running in CI environment
-  const isCI = process.env.CI === "true";
-  if (isCI) {
-    logInfo("Running in CI environment - skipping build/test (handled by workflow)");
-  }
-
-  // Create temporary directory for artifacts
-  const tempDir = join(ROOT_DIR, ".release-temp");
-  if (existsSync(tempDir)) {
-    rmSync(tempDir, { recursive: true, force: true });
-  }
-  mkdirSync(tempDir, { recursive: true });
+  // Create temporary directory for artifacts (outside try for cleanup access)
+  let tempDir = join(ROOT_DIR, ".release-temp");
 
   try {
+    if (!DRY_RUN) {
+      logStep(`Updating all package.json files to version ${VERSION}...`);
+
+      for (const pkgFile of packageFiles) {
+        const pkg = JSON.parse(readFileSync(pkgFile, "utf-8"));
+        pkg.version = VERSION;
+        writeFileSync(pkgFile, JSON.stringify(pkg, null, 2) + "\n");
+        logInfo(`Updated ${pkgFile}`);
+      }
+    } else {
+      logWarn("DRY RUN: Skipping package.json version updates");
+    }
+
+    // Detect if running in CI environment
+    const isCI = process.env.CI === "true";
+    if (isCI) {
+      logInfo("Running in CI environment - skipping build/test (handled by workflow)");
+    }
+
+    // Setup temporary directory
+    if (existsSync(tempDir)) {
+      rmSync(tempDir, { recursive: true, force: true });
+    }
+    mkdirSync(tempDir, { recursive: true });
     // Step 1: Build the project (skip in CI)
     if (!isCI) {
       logStep("Building afm-js package...");
@@ -534,6 +551,12 @@ See the [CHANGELOG](https://github.com/${REPO}/blob/main/CHANGELOG.md) for detai
     console.log("Users can install via:");
     console.log("  brew install tariqwest/tap/afm-js");
 
+  } catch (error) {
+    // Rollback package.json changes on failure
+    if (!DRY_RUN) {
+      rollbackPackageVersions();
+    }
+    throw error;
   } finally {
     // Cleanup temporary directory
     if (existsSync(tempDir)) {
