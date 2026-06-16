@@ -1,6 +1,6 @@
 {
   "name": "@afm-js/core",
-  "version": "0.0.5",
+  "version": "0.0.7",
   "description": "Core of afm-js, provides an interface mirroring Apple's official apple/python-apple-fm-sdk.",
   "license": "MIT",
   "type": "module",

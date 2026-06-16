@@ -1,6 +1,6 @@
 {
   "name": "afm-js",
-  "version": "0.0.5",
+  "version": "0.0.7",
   "description": "Apple Foundation Models for Node.js — OpenAI-compatible HTTP server and CLI for Apple Intelligence.",
   "license": "MIT",
   "author": "Tariq West",
