@@ -8,11 +8,25 @@
 // Environment variables:
 //   GITHUB_TOKEN - GitHub personal access token (required)
 //   RELEASE_DRY_RUN - Set to "true" to skip actual GitHub operations
-//   RELEASE_VERSION - Override version for release (updates all package.json files)
+//   RELEASE_VERSION - Override version for release (updates package.json)
+//   APPLE_FM_SDK_PATH - Path to ts-apple-fm-sdk checkout (default: ../ts-apple-fm-sdk)
+//   TAP_REPO - Homebrew tap repository (default: tariqwest/homebrew-tap)
+//   TAP_DIR - Local tap clone directory (default: ~/.cache/afm-server-tap)
+//
+// CI: set RELEASE_VERSION from the pushed tag (e.g. v0.0.11 → 0.0.11) and ensure
+// apple-fm-sdk is available at APPLE_FM_SDK_PATH before running.
 // ============================================================================
 
 import { execSync } from "node:child_process";
-import { readFileSync, writeFileSync, existsSync, mkdirSync, rmSync, createReadStream } from "node:fs";
+import {
+  readFileSync,
+  writeFileSync,
+  existsSync,
+  mkdirSync,
+  rmSync,
+  cpSync,
+  createReadStream,
+} from "node:fs";
 import { join, dirname, basename } from "node:path";
 import { fileURLToPath } from "node:url";
 import { createHash } from "node:crypto";
@@ -26,10 +40,12 @@ const ROOT_DIR = dirname(__dirname);
 
 const versionArg = process.argv[2];
 const currentVersion = JSON.parse(readFileSync(join(ROOT_DIR, "package.json"), "utf-8")).version;
-const VERSION = process.env.RELEASE_VERSION || versionArg || currentVersion;
+const VERSION = resolveReleaseVersion();
 const GITHUB_TOKEN = process.env.GITHUB_TOKEN;
 const DRY_RUN = process.env.RELEASE_DRY_RUN === "true";
 const REPO = "tariqwest/afm-server";
+const APPLE_FM_SDK_PATH =
+  process.env.APPLE_FM_SDK_PATH || join(ROOT_DIR, "..", "ts-apple-fm-sdk");
 
 const colors = {
   reset: "\x1b[0m",
@@ -76,6 +92,91 @@ function calculateSha256(filePath) {
   const data = readFileSync(filePath);
   hash.update(data);
   return hash.digest("hex");
+}
+
+function resolveReleaseVersion() {
+  if (process.env.RELEASE_VERSION) {
+    return process.env.RELEASE_VERSION.replace(/^v/, "");
+  }
+
+  if (versionArg) {
+    return versionArg.replace(/^v/, "");
+  }
+
+  const tagRef = process.env.GITHUB_REF || "";
+  const tagMatch = tagRef.match(/^refs\/tags\/v?(.+)$/);
+  if (tagMatch) {
+    return tagMatch[1];
+  }
+
+  return currentVersion;
+}
+
+function resolveAppleFmSdkPath() {
+  if (!existsSync(join(APPLE_FM_SDK_PATH, "package.json"))) {
+    throw new Error(
+      `apple-fm-sdk not found at ${APPLE_FM_SDK_PATH}. ` +
+        "Clone https://github.com/tariqwest/ts-apple-fm-sdk alongside afm-server " +
+        "or set APPLE_FM_SDK_PATH.",
+    );
+  }
+
+  return APPLE_FM_SDK_PATH;
+}
+
+function ensureAppleFmSdkBuilt(sdkPath) {
+  const needsNative = !existsSync(join(sdkPath, "build", "apple_fm_sdk_napi.node"));
+  const needsJs = !existsSync(join(sdkPath, "dist", "index.js"));
+
+  if (!needsNative && !needsJs) {
+    return;
+  }
+
+  logStep("Building apple-fm-sdk artifacts...");
+
+  if (needsNative) {
+    exec("pnpm run build:napi", { cwd: sdkPath });
+  }
+
+  if (needsJs) {
+    exec("pnpm run build", { cwd: sdkPath });
+  }
+}
+
+function bundlePrebuiltPackage(deployDir, version) {
+  const sdkPath = resolveAppleFmSdkPath();
+  ensureAppleFmSdkBuilt(sdkPath);
+
+  if (existsSync(deployDir)) {
+    rmSync(deployDir, { recursive: true, force: true });
+  }
+  mkdirSync(deployDir, { recursive: true });
+
+  cpSync(join(ROOT_DIR, "dist"), join(deployDir, "dist"), { recursive: true });
+  cpSync(join(ROOT_DIR, "bin"), join(deployDir, "bin"), { recursive: true });
+
+  const vendorSdkDir = join(deployDir, "vendor", "apple-fm-sdk");
+  mkdirSync(vendorSdkDir, { recursive: true });
+  for (const item of ["dist", "build", "package.json"]) {
+    cpSync(join(sdkPath, item), join(vendorSdkDir, item), { recursive: true });
+  }
+
+  const rootPkg = JSON.parse(readFileSync(join(ROOT_DIR, "package.json"), "utf-8"));
+  const deployPkg = {
+    name: rootPkg.name,
+    version,
+    type: "module",
+    dependencies: Object.fromEntries(
+      Object.entries(rootPkg.dependencies).map(([name, spec]) => [
+        name,
+        name === "apple-fm-sdk" ? "file:./vendor/apple-fm-sdk" : spec,
+      ]),
+    ),
+  };
+  writeFileSync(join(deployDir, "package.json"), JSON.stringify(deployPkg, null, 2) + "\n");
+
+  logStep("Installing production dependencies into release bundle...");
+  exec("pnpm --config.global=false install --prod --ignore-scripts", { cwd: deployDir });
 }
 
 function generateFormula(version, sha256) {
@@ -362,7 +463,7 @@ async function main() {
 
   try {
     if (!DRY_RUN) {
-      logStep(`Updating all package.json files to version ${VERSION}...`);
+      logStep(`Updating package.json to version ${VERSION}...`);
       for (const pkgFile of packageFiles) {
         const pkg = JSON.parse(readFileSync(pkgFile, "utf-8"));
         pkg.version = VERSION;
@@ -399,8 +500,8 @@ async function main() {
     );
     if (!DRY_RUN) {
       const deployDir = join(tempDir, "afm-server-deploy");
-      logStep("Bundling dependencies via pnpm deploy...");
-      exec(`pnpm deploy --prod "${deployDir}"`, { cwd: ROOT_DIR });
+      logStep("Bundling afm-server with apple-fm-sdk and production dependencies...");
+      bundlePrebuiltPackage(deployDir, VERSION);
       exec(`tar -czf "${afmServerTarball}" -C "${deployDir}" dist bin node_modules`, {
         cwd: ROOT_DIR,
       });
@@ -425,11 +526,11 @@ brew install tariqwest/tap/afm-server
 
 ## What's Changed
 
-See the [CHANGELOG](https://github.com/${REPO}/blob/main/CHANGELOG.md) for details.
+See the [release notes](https://github.com/${REPO}/releases/tag/v${VERSION}) and [commit history](https://github.com/${REPO}/commits/main).
 
 ## Artifacts
 
-- \`afm-server-prebuilt-arm64-apple-darwin-${VERSION}.tar.gz\` - Prebuilt Node.js package with apple-fm-sdk
+- \`afm-server-prebuilt-arm64-apple-darwin-${VERSION}.tar.gz\` - Prebuilt \`dist/\`, \`bin/\`, and production \`node_modules/\` (includes bundled \`apple-fm-sdk\`)
 
 ## Requirements
 

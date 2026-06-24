@@ -21,6 +21,16 @@ jobs:
           fetch-depth: 0
           persist-credentials: false
 
+      - name: Checkout apple-fm-sdk
+        uses: actions/checkout@v4
+        with:
+          repository: tariqwest/ts-apple-fm-sdk
+          path: deps/ts-apple-fm-sdk
+          persist-credentials: false
+
+      - name: Link apple-fm-sdk for local dependency
+        run: ln -sfn "${GITHUB_WORKSPACE}/deps/ts-apple-fm-sdk" "${GITHUB_WORKSPACE}/../ts-apple-fm-sdk"
+
       - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
@@ -34,6 +44,10 @@ jobs:
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
 
+      - name: Build apple-fm-sdk
+        run: pnpm run build:release
+        working-directory: deps/ts-apple-fm-sdk
+
       - name: Build
         run: pnpm run build
 
@@ -46,6 +60,8 @@ jobs:
       - name: Release
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          RELEASE_VERSION: ${{ github.ref_name }}
+          APPLE_FM_SDK_PATH: ${{ github.workspace }}/deps/ts-apple-fm-sdk
           GIT_AUTHOR_NAME: github-actions[bot]
           GIT_AUTHOR_EMAIL: github-actions[bot]@users.noreply.github.com
           GIT_COMMITTER_NAME: github-actions[bot]
