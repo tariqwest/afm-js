@@ -1,107 +1,213 @@
 # afm-server
 
-OpenAI-compatible HTTP server and CLI for Apple Foundation Models on macOS. Inference runs in-process via [`apple-fm-sdk`](https://github.com/tariqwest/ts-apple-fm-sdk) — no subprocess backends, no Swift helper binary.
+OpenAI-compatible HTTP server for Apple Foundation Models on macOS. Drop it into any Node.js app or point an OpenAI client at `http://127.0.0.1:<port>/v1` to run inference on-device via [`apple-fm-sdk`](https://github.com/tariqwest/ts-apple-fm-sdk).
 
-## What it does
+## Overview
 
-- Exposes an OpenAI-compatible HTTP API (`/v1/chat/completions`, `/v1/models`, `/health`)
-- Ships a CLI (`afm-server`) for `serve`, `respond`, `chat`, `token-count`, `available`, and `schema`
-- Injects tools from local stdio MCP servers when clients send none
-- Supports structured JSON output via `response_format`
+afm-server exposes a small, OpenAI-shaped HTTP surface over Apple's on-device `SystemLanguageModel`. Inference runs in-process through `apple-fm-sdk` — no subprocess backends, no helper binaries, no IPC to `/usr/bin/fm`.
+
+**Endpoints**
+
+| Method | Path | Purpose |
+|--------|------|---------|
+| `GET` | `/health` | Liveness check (no auth) |
+| `GET` | `/v1/models` | List the on-device model and supported parameters |
+| `POST` | `/v1/chat/completions` | Chat completion (streaming and non-streaming) |
+
+**Capabilities**
+
+- Bearer-token auth on all routes except `/health`
+- Server-sent events streaming (`stream: true`)
+- Tool calling with optional stdio MCP server injection
+- Structured output via `response_format` (`json_object`, `json_schema`)
+- Per-request `LanguageModelSession` lifecycle with automatic cleanup
 
 ## Model
 
-| Model ID | Backend | Notes |
-|----------|---------|-------|
-| `system` | On-device `SystemLanguageModel` | Default. macOS 26+, Apple Silicon, Apple Intelligence enabled |
+Only one model is served:
 
-PCC (`model: "pcc"`) is **not supported** and returns 400.
+| Model ID | Backend | Requirements |
+|----------|---------|--------------|
+| `system` | On-device `SystemLanguageModel` | macOS 26+, Apple Silicon, Apple Intelligence enabled |
 
-Unknown model IDs (e.g. `gpt-4`) are rejected with 400. Only `system` is accepted.
+Requests with `model: "pcc"` or any other model ID are rejected with `400`.
 
 ## Requirements
 
-- macOS 26 (Tahoe) or later, Apple Silicon (M1+)
+- macOS 26 (Tahoe) or later
+- Apple Silicon (M1+)
 - Apple Intelligence enabled in System Settings
-- Node 20+
-- [`ts-apple-fm-sdk`](https://github.com/tariqwest/ts-apple-fm-sdk) sibling checkout for local development
+- Node.js 20+
+- For local development: a sibling checkout of [`ts-apple-fm-sdk`](https://github.com/tariqwest/ts-apple-fm-sdk)
 
-## Installation
-
-### Homebrew
+## Install
 
 ```bash
-brew tap tariqwest/tap
-brew install afm-server
-afm-server serve --port 1337
+npm install afm-server
+# or
+pnpm add afm-server
 ```
 
-### From source
+From source:
 
 ```bash
 git clone https://github.com/tariqwest/afm-server.git
 git clone https://github.com/tariqwest/ts-apple-fm-sdk.git ../ts-apple-fm-sdk
 cd afm-server
-
-pnpm install
-pnpm run build
-afm-server serve --port 1337
+pnpm install && pnpm run build
 ```
+
+Homebrew:
+
+```bash
+brew tap tariqwest/tap
+brew install afm-server
+```
+
+## Quick start
+
+Embed the server in a Node.js process:
+
+```typescript
+import { startServer } from "afm-server";
+
+const server = await startServer({
+  port: 1337,
+  host: "127.0.0.1",
+  token: "sk-apple-1337",
+});
+
+// Server is listening — point any OpenAI client here:
+//   baseURL: http://127.0.0.1:1337/v1
+//   apiKey:  sk-apple-1337
+
+await server.stop();
+```
+
+Or mount the Hono app in your own HTTP stack:
+
+```typescript
+import { createApp, InferenceService } from "afm-server";
+
+const inference = InferenceService.create();
+const app = createApp({ inference, token: "sk-apple-1337" });
+
+// app.fetch is a standard Request → Response handler
+```
+
+### Chat completion
+
+```bash
+curl -X POST http://127.0.0.1:1337/v1/chat/completions \
+  -H "Authorization: Bearer sk-apple-1337" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "model": "system",
+    "messages": [{"role": "user", "content": "Say hi."}]
+  }'
+```
+
+### Streaming
+
+```bash
+curl -N -X POST http://127.0.0.1:1337/v1/chat/completions \
+  -H "Authorization: Bearer sk-apple-1337" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "model": "system",
+    "stream": true,
+    "messages": [{"role": "user", "content": "Count to five."}]
+  }'
+```
+
+### Structured output
+
+```bash
+curl -X POST http://127.0.0.1:1337/v1/chat/completions \
+  -H "Authorization: Bearer sk-apple-1337" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "model": "system",
+    "response_format": {
+      "type": "json_schema",
+      "json_schema": {
+        "name": "person",
+        "schema": {
+          "type": "object",
+          "properties": {
+            "name": {"type": "string"},
+            "age": {"type": "integer"}
+          },
+          "required": ["name", "age"]
+        }
+      }
+    },
+    "messages": [{"role": "user", "content": "Alice, age 30"}]
+  }'
+```
+
+## Configuration
+
+`startServer` accepts:
+
+| Option | Default | Description |
+|--------|---------|-------------|
+| `port` | `11434` | Listen port |
+| `host` | `127.0.0.1` | Bind address |
+| `token` | `null` | Bearer token; omit or set `null` to disable auth |
+| `mcpServers` | `[]` | Stdio MCP servers whose tools are injected when the client sends none |
+| `debug` | no-op | Log callback |
+
+MCP server spec:
+
+```typescript
+await startServer({
+  port: 1337,
+  token: "sk-apple-1337",
+  mcpServers: [
+    { command: "python3", args: ["/path/to/mcp_server.py"] },
+  ],
+});
+```
+
+When MCP tools are injected, detected tool calls are executed automatically and the model is re-prompted for a final answer.
+
+## Supported request parameters
+
+**Accepted:** `temperature`, `max_tokens`, `seed`, `stream`, `stream_options`, `tools`, `tool_choice`, `response_format`
+
+**Rejected with 400:** `logprobs`, `n` (unless `1`), `stop`, `presence_penalty`, `frequency_penalty`, image content
 
 ## Architecture
 
-afm-server is a **single Node.js package** (not a monorepo). Source is split into `src/server/` (HTTP + inference) and `src/cli/` (terminal commands).
-
 ```
-afm-server CLI
-    └─ src/cli/commands/serve.ts
-           └─ startServer()
-                  └─ createApp()          [Hono routes]
-                         └─ Session.open()
-                                └─ InferenceService
-                                       └─ apple-fm-sdk (in-process FFI)
-                                              └─ SystemLanguageModel
-                                              └─ LanguageModelSession
+HTTP client
+  → Hono (app.ts)
+       → ChatRequestValidator
+       → ContextManager        # fold messages → (instructions, prompt)
+       → Session               # per-request LanguageModelSession
+            → InferenceService
+                 → apple-fm-sdk (in-process FFI)
+                      → SystemLanguageModel
+                      → LanguageModelSession
 ```
 
-### Request flow (`POST /v1/chat/completions`)
-
-1. **Validate** — `ChatRequestValidator` checks model, parameters, message roles
-2. **Context** — `ContextManager` folds messages into `(instructions, finalPrompt)`
-3. **Session** — per-request `LanguageModelSession` created with instructions
-4. **Infer** — `InferenceService.respond()` or `.stream()` via `apple-fm-sdk`
-5. **Map** — SDK errors → `AfmError` → OpenAI error envelope; streaming snapshots → SSE deltas
-6. **Release** — session `release()` in `finally`
-
-### SDK adapter (`src/server/sdk/`)
+The adapter layer in `src/server/sdk/` maps OpenAI parameters to `GenerationOptions`, SDK errors to `AfmError`, and streaming snapshots to SSE deltas.
 
 | Module | Role |
 |--------|------|
-| `ModelProvider` | `SystemLanguageModel` lifecycle, availability, context size, token counting |
+| `ModelProvider` | Model lifecycle, availability, context size, token counting |
 | `GenerationMapper` | OpenAI params → `GenerationOptions` |
-| `SdkErrorMapper` | SDK errors → typed `AfmError` |
-| `InferenceService` | Session open/respond/stream/shutdown |
+| `SdkErrorMapper` | SDK errors → `AfmError` |
+| `InferenceService` | Open, respond, stream, shutdown |
 
 ## Project layout
 
 ```
 afm-server/
-├── src/
-│   ├── server/          HTTP server, SDK adapter, MCP, validators
-│   │   ├── app.ts       Hono route handlers
-│   │   ├── server.ts    Node HTTP bootstrap
-│   │   ├── sdk/         apple-fm-sdk adapter layer
-│   │   ├── session/     Session + ContextManager
-│   │   ├── mcp/         stdio MCP client
-│   │   └── ...
-│   └── cli/             CLI entry point and commands
-│       ├── main.ts
-│       └── commands/
-├── bin/afm-server.js    executable shim → dist/cli/main.js
-├── test/
-│   ├── unit/
-│   └── e2e/
-├── examples/            apple-fm-sdk usage (not afm-server internals)
+├── src/server/       HTTP routes, SDK adapter, MCP, validators
+├── test/             unit and e2e tests
+├── examples/         standalone apple-fm-sdk demos
 └── scripts/release.js
 ```
 
@@ -110,110 +216,44 @@ afm-server/
 ```bash
 pnpm install
 pnpm run build
-pnpm test              # unit + e2e (e2e skipped if SDK native bindings unavailable)
-pnpm run test:e2e      # e2e only
+pnpm test
 pnpm run typecheck
-pnpm run ci            # build + test + typecheck
 ```
 
-## Run the server
+E2E tests require native `apple-fm-sdk` bindings and are skipped automatically when unavailable.
 
-```bash
-afm-server serve --port 1337 --token sk-apple-1337 --debug
-```
+## Public API
 
-```bash
-curl -X POST http://127.0.0.1:1337/v1/chat/completions \
-  -H "Authorization: Bearer sk-apple-1337" \
-  -H "Content-Type: application/json" \
-  -d '{"model":"system","messages":[{"role":"user","content":"Say hi."}]}'
-```
-
-Streaming:
-
-```bash
-curl -N -X POST http://127.0.0.1:1337/v1/chat/completions \
-  -H "Authorization: Bearer sk-apple-1337" \
-  -H "Content-Type: application/json" \
-  -d '{"model":"system","stream":true,"messages":[{"role":"user","content":"Count to 5."}]}'
-```
-
-With a local MCP server:
-
-```bash
-afm-server serve --port 1337 --mcp "python3 /path/to/mcp/server.py"
-```
-
-Environment variables for `serve`:
-
-- `AFM_SERVER_PORT` (default `1337`)
-- `AFM_SERVER_TOKEN` (default `sk-apple-1337`)
-
-## Programmatic API
-
-Import the server library from the package root:
+Exported from the package root:
 
 ```typescript
-import { startServer, createApp, InferenceService } from "afm-server";
-
-const inference = InferenceService.create();
-const app = createApp({ inference, token: "sk-apple-1337" });
-// or
-const server = await startServer({ port: 1337, token: "sk-apple-1337" });
-await server.stop();
+import {
+  startServer,
+  createApp,
+  InferenceService,
+  Session,
+  AfmError,
+  ModelAvailability,
+  McpStdioClient,
+} from "afm-server";
 ```
 
-Published entry: `dist/server/index.js` (see `package.json` `exports`).
+See `src/server/index.ts` for the full export list.
 
-## CLI commands
+## Using apple-fm-sdk directly
 
-| Command | Purpose |
-|---------|---------|
-| `serve` | Start the OpenAI-compatible HTTP server |
-| `respond` | One-shot generation (optional `--stream`) |
-| `chat` | Interactive multi-turn REPL |
-| `token-count` | Count tokens via SDK (no generation) |
-| `available` | Check model availability on this device |
-| `schema` | Generate JSON schema locally (no model needed) |
+afm-server is the HTTP compatibility layer. For native FFI access without HTTP, use [`apple-fm-sdk`](https://github.com/tariqwest/ts-apple-fm-sdk) directly. Examples live in [`examples/`](examples/) and the [SDK repository](https://github.com/tariqwest/ts-apple-fm-sdk/tree/master/examples).
 
-```bash
-afm-server respond "Hello"
-afm-server respond --stream --instructions "Be concise." "Explain recursion"
-afm-server chat --instructions "You are a coding assistant."
-afm-server token-count --json "Hello world"
-afm-server available --json
-afm-server schema object --name Person --string name --int age
-```
+## Background service (Homebrew)
 
-## Homebrew services
+The Homebrew formula registers a launchd service that keeps the server running in your login session (required for Apple Intelligence access):
 
 ```bash
 brew services start afm-server
 brew services info afm-server
 ```
 
-Logs: `/opt/homebrew/var/log/afm-server.log`, `/opt/homebrew/var/log/afm-server-error.log`
-
-## Direct SDK usage
-
-For inference without the HTTP layer, use [`apple-fm-sdk`](https://github.com/tariqwest/ts-apple-fm-sdk) directly. See [`examples/`](examples/) and the [SDK examples](https://github.com/tariqwest/ts-apple-fm-sdk/tree/master/examples).
-
-## Removed / not supported
-
-These existed in earlier versions and are gone:
-
-- Subprocess backends (`/usr/bin/fm`, `afm-fm-helper`)
-- `--helper`, `AFM_HELPER_PATH`
-- `quota-usage` CLI command
-- `model: "pcc"` (Private Cloud Compute)
-- Monorepo packages (`@afm-js/core`, `@afm-js/cli`, `@afm-js/server`)
-
-## Thanks & inspiration
-
-- [Arthur-Ficial/apfel](https://github.com/Arthur-Ficial/apfel)
-- [tariqwest/apfel-plus](https://github.com/tariqwest/apfel-plus)
-- [codybrom/tsfm](https://github.com/codybrom/tsfm)
-- [apple/python-apple-fm-sdk](https://github.com/apple/python-apple-fm-sdk)
+Logs: `/opt/homebrew/var/log/afm-server.log`
 
 ## License
 
