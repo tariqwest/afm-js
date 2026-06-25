@@ -200,7 +200,7 @@ function generateFormula(version, sha256) {
 
     # Clear dylib IDs on native addons so Homebrew skips relocation.
     # These are dlopen'd by Node.js and don't need a dylib ID.
-    Dir.glob("#{libexec}/node_modules/**/*.dylib").each do |dylib|
+    Dir.glob("#{libexec}/node_modules/**/*.dylib", File::FNM_DOTMATCH).each do |dylib|
       next unless File.file?(dylib)
       chmod 0644, dylib
       system "install_name_tool", "-id", "", dylib
@@ -209,7 +209,7 @@ function generateFormula(version, sha256) {
     end
 
     # Ensure node-pty spawn-helper is executable (needed for PCC backend)
-    Dir.glob("#{libexec}/node_modules/**/spawn-helper").each do |helper|
+    Dir.glob("#{libexec}/node_modules/**/spawn-helper", File::FNM_DOTMATCH).each do |helper|
       chmod 0755, helper
     end
 
