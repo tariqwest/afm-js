@@ -200,10 +200,14 @@ function generateFormula(version, sha256) {
 
     # Clear dylib IDs on native addons so Homebrew skips relocation.
     # These are dlopen'd by Node.js and don't need a dylib ID.
+    # We set an @rpath ID so preserve_rpath prevents Homebrew's
+    # post-install relocation from rewriting it (which fails on
+    # libFoundationModels.dylib due to insufficient header space).
     Dir.glob("#{libexec}/node_modules/**/*.dylib", File::FNM_DOTMATCH).each do |dylib|
       next unless File.file?(dylib)
+      basename = File.basename(dylib)
       chmod 0644, dylib
-      system "install_name_tool", "-id", "", dylib
+      system "install_name_tool", "-id", "@rpath/#{basename}", dylib
       system "codesign", "--sign", "-", "--force", dylib
       chmod 0444, dylib
     end
