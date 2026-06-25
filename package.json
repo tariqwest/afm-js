@@ -1,6 +1,6 @@
 {
   "name": "fm-server",
-  "version": "0.1.5",
+  "version": "0.1.6",
   "description": "Apple Foundation Models for Node.js — OpenAI-compatible HTTP server and CLI for Apple Intelligence.",
   "license": "MIT",
   "author": "Tariq West",

@@ -75,14 +75,14 @@ Embed the server in a Node.js process:
 import { startServer } from "fm-server";
 
 const server = await startServer({
-  port: 1337,
+  port: 11434,
   host: "127.0.0.1",
-  token: "sk-apple-1337",
+  token: "sk-apple-11434",
 });
 
 // Server is listening — point any OpenAI client here:
-//   baseURL: http://127.0.0.1:1337/v1
-//   apiKey:  sk-apple-1337
+//   baseURL: http://127.0.0.1:11434/v1
+//   apiKey:  sk-apple-11434
 
 await server.stop();
 ```
@@ -93,7 +93,7 @@ Or mount the Hono app in your own HTTP stack:
 import { createApp, InferenceService } from "fm-server";
 
 const inference = InferenceService.create();
-const app = createApp({ inference, token: "sk-apple-1337" });
+const app = createApp({ inference, token: "sk-apple-11434" });
 
 // app.fetch is a standard Request → Response handler
 ```
@@ -101,7 +101,7 @@ const app = createApp({ inference, token: "sk-apple-1337" });
 ### Chat completion
 
 ```bash
-curl -X POST http://*********:1337/v1/chat/completions \
+curl -X POST http://*********:11434/v1/chat/completions \
   -H "Authorization: Bearer *************" \
   -H "Content-Type: application/json" \
   -d '{
@@ -113,7 +113,7 @@ curl -X POST http://*********:1337/v1/chat/completions \
 ### Private Cloud Compute
 
 ```bash
-curl -X POST http://*********:1337/v1/chat/completions \
+curl -X POST http://*********:11434/v1/chat/completions \
   -H "Authorization: Bearer *************" \
   -H "Content-Type: application/json" \
   -d '{
@@ -125,8 +125,8 @@ curl -X POST http://*********:1337/v1/chat/completions \
 ### Streaming
 
 ```bash
-curl -N -X POST http://127.0.0.1:1337/v1/chat/completions \
-  -H "Authorization: Bearer sk-apple-1337" \
+curl -N -X POST http://127.0.0.1:11434/v1/chat/completions \
+  -H "Authorization: Bearer sk-apple-11434" \
   -H "Content-Type: application/json" \
   -d '{
     "model": "system",
@@ -138,8 +138,8 @@ curl -N -X POST http://127.0.0.1:1337/v1/chat/completions \
 ### Structured output
 
 ```bash
-curl -X POST http://127.0.0.1:1337/v1/chat/completions \
-  -H "Authorization: Bearer sk-apple-1337" \
+curl -X POST http://127.0.0.1:11434/v1/chat/completions \
+  -H "Authorization: Bearer sk-apple-11434" \
   -H "Content-Type: application/json" \
   -d '{
     "model": "system",
@@ -167,20 +167,20 @@ curl -X POST http://127.0.0.1:1337/v1/chat/completions \
 
 | Option | Default | Description |
 |--------|---------|-------------|
-| `port` | `1337` | Listen port |
+| `port` | `11434` | Listen port |
 | `host` | `127.0.0.1` | Bind address |
 | `token` | `null` | Bearer token; omit or set `null` to disable auth |
 | `mcpServers` | `[]` | Stdio MCP servers whose tools are injected when the client sends none |
 | `debug` | no-op | Log callback |
 
-> **Auth note:** `startServer` defaults `token` to `null` (auth off) so embedders opt in explicitly. The `fm-server serve` CLI defaults to `sk-apple-1337` (auth on) and honors the `FM_SERVER_TOKEN` env var.
+> **Auth note:** `startServer` defaults `token` to `null` (auth off) so embedders opt in explicitly. The `fm-server serve` CLI defaults to `sk-apple-11434` (auth on) and honors the `FM_SERVER_TOKEN` env var.
 
 MCP server spec:
 
 ```typescript
 await startServer({
-  port: 1337,
-  token: "sk-apple-1337",
+  port: 11434,
+  token: "sk-apple-11434",
   mcpServers: [
     { command: "python3", args: ["/path/to/mcp_server.py"] },
   ],

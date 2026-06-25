@@ -14,7 +14,7 @@ export const serveCommand = defineCommand({
   args: {
     port: {
       type: "string",
-      description: "Bind port (default 1337).",
+      description: "Bind port (default 11434).",
     },
     host: {
       type: "string",
@@ -37,13 +37,13 @@ export const serveCommand = defineCommand({
   async run({ args }) {
     const debugFn = args.debug ? (msg: string) => process.stderr.write(`fm-server: ${msg}\n`) : undefined;
 
-    const port = args.port ? Number(args.port) : (process.env.FM_SERVER_PORT ? Number(process.env.FM_SERVER_PORT) : 1337);
+    const port = args.port ? Number(args.port) : (process.env.FM_SERVER_PORT ? Number(process.env.FM_SERVER_PORT) : 11434);
     if (!Number.isFinite(port) || port < 1 || port > 65535) {
       process.stderr.write(`fm-server: invalid --port value: ${args.port}\n`);
       process.exit(2);
     }
 
-    const token = (args.token as string | undefined) ?? process.env.FM_SERVER_TOKEN ?? "sk-apple-1337";
+    const token = (args.token as string | undefined) ?? process.env.FM_SERVER_TOKEN ?? undefined;
     const host = (args.host as string | undefined) ?? "127.0.0.1";
     const mcpServers = parseMcpSpecs(args.mcp as string | undefined);
 

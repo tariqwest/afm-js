@@ -206,6 +206,11 @@ function generateFormula(version, sha256) {
       chmod 0444, dylib
     end
 
+    # Ensure node-pty spawn-helper is executable (needed for PCC backend)
+    Dir.glob("#{libexec}/node_modules/**/spawn-helper").each do |helper|
+      chmod 0755, helper
+    end
+
     (bin/"fm-server").write <<~EOS
       #!/bin/bash
       exec "\#{Formula["node"].opt_bin}/node" "\#{libexec}/bin/fm-server.js" "$@"
@@ -218,7 +223,7 @@ function generateFormula(version, sha256) {
     keep_alive true
     log_path var/"log/fm-server.log"
     error_log_path var/"log/fm-server-error.log"
-    environment_variables FM_SERVER_PORT: "1337",
+    environment_variables FM_SERVER_PORT: "11434",
                           FM_SERVER_TOKEN: "fm-server"
     require_root false
   end
@@ -231,7 +236,9 @@ function generateFormula(version, sha256) {
         - Apple Intelligence enabled in System Settings
 
       To start the server manually:
-        fm-server serve --port 1337
+        fm-server serve
+
+      Default port: 11434 (override with --port or FM_SERVER_PORT)
 
       To run as a background service (auto-starts at login):
         brew services start fm-server

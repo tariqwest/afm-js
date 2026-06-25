@@ -16,7 +16,7 @@ export interface McpServerSpec {
 }
 
 export interface StartOptions {
-  /** Bind port. Default 1337. */
+  /** Bind port. Default 11434. */
   port?: number;
   /** Bind host. Default 127.0.0.1. */
   host?: string;
@@ -43,7 +43,7 @@ export async function startServer(opts: StartOptions): Promise<RunningServer> {
 
   const app = createApp({ inference, token: opts.token, debug, mcpClients });
 
-  const port = opts.port ?? 1337;
+  const port = opts.port ?? 11434;
   const hostname = opts.host ?? "127.0.0.1";
 
   return new Promise<RunningServer>((resolve) => {
