@@ -40,10 +40,7 @@
     "format": "biome format --write .",
     "lint": "biome lint .",
     "check": "biome check .",
-    "release": "node scripts/bump.js && node scripts/release.js",
-    "release:bump": "node scripts/bump.js",
-    "release:publish": "node scripts/release.js",
-    "release:gh": "node scripts/release.js --no-brew",
+    "release": "node scripts/release.js",
     "ci": "pnpm run build && pnpm run test && pnpm run typecheck"
   },
   "dependencies": {

@@ -14,36 +14,31 @@ Semantic versioning: `MAJOR.MINOR.PATCH`
 
 ```bash
 gh auth login                 # one-time setup
-pnpm run release              # auto-detect bump + publish (GH + Homebrew)
-pnpm run release:gh           # auto-detect bump + GitHub release only (no Homebrew)
-```
-
-Or as separate steps:
-
-```bash
-pnpm run release:bump         # auto-detect bump (updates package.json)
-pnpm run release:bump patch   # explicit patch bump
-pnpm run release:publish      # build, bundle, GitHub release, Homebrew tap
-pnpm run release:gh           # build, bundle, GitHub release only
+pnpm run release              # auto-detect bump + build + publish (GH + Homebrew)
+pnpm run release patch        # explicit patch bump + publish
+pnpm run release -- --dry-run # dry-run (no bump, no publish)
 ```
 
 ## How It Works
 
-The release is split into two scripts:
+A single script (`scripts/release.js`) handles the entire release:
 
-1. **`scripts/bump.js`** — Bumps the version in `package.json` (no git commit/tag)
-2. **`scripts/release.js`** — Reads version from `package.json`, builds, bundles, publishes
+1. Bumps the version in `package.json` (skipped during `--dry-run`)
+2. Builds the project (`pnpm run build`)
+3. Bundles prebuilt tarball with vendored apple-fm-sdk + fm-wrap
+4. Creates GitHub release + uploads artifact (via `gh` CLI)
+5. Generates and publishes Homebrew formula to tap
 
-### Version Bump (`release:bump`)
+### Version Bump
 
-Accepts an explicit strategy or auto-detects from git history:
+Pass an explicit strategy as a positional argument, or let it auto-detect from git history:
 
 ```bash
-pnpm run release:bump patch   # 0.0.10 → 0.0.11
-pnpm run release:bump minor   # 0.0.10 → 0.1.0
-pnpm run release:bump major   # 0.0.10 → 1.0.0
-pnpm run release:bump 1.2.3   # explicit version
-pnpm run release:bump         # auto-detect
+node scripts/release.js patch   # 0.2.0 → 0.2.1
+node scripts/release.js minor   # 0.2.0 → 0.3.0
+node scripts/release.js major   # 0.2.0 → 1.0.0
+node scripts/release.js 1.2.3   # explicit version
+node scripts/release.js         # auto-detect from commits
 ```
 
 Auto-detection heuristic (from commits since last tag):
@@ -52,37 +47,27 @@ Auto-detection heuristic (from commits since last tag):
 - `feat:` or `feat(scope):` prefix → **minor**
 - Default → **minor**
 
-### Publish (`release:publish`)
-
-Reads the current version from `package.json` and:
-
-1. Builds the project (`pnpm run build`)
-2. Bundles prebuilt tarball with vendored apple-fm-sdk
-3. Creates GitHub release + uploads artifact (via `gh` CLI)
-4. Generates and publishes Homebrew formula to tap
-
 ### Dry Run
 
 ```bash
-pnpm run release:publish --dry-run
+pnpm run release -- --dry-run
 ```
+
+Skips bumping, building, uploading, and tap publishing. Uses the current version from `package.json` for display.
 
 ## Scripts
 
-- `pnpm run release` — Bump + publish in one shot (GH + Homebrew)
-- `pnpm run release:bump [patch|minor|major|version]` — Bump only
-- `pnpm run release:publish [--dry-run] [--no-brew]` — Publish (GH + Homebrew)
-- `pnpm run release:gh` — Publish to GitHub only (no Homebrew)
+- `pnpm run release [patch|minor|major|version]` — Bump + build + publish (GH + Homebrew)
 - `pnpm run ci` — Build + test + typecheck
 
 ## Flags
 
-- `--dry-run` — Skip actual operations (build, upload, tap push)
-- `--no-brew` — Skip Homebrew tap publishing (GitHub release only)
+- `--dry-run` — Skip bump and all destructive operations
 
 ## Environment Variables
 
 - `APPLE_FM_SDK_PATH` — Path to ts-apple-fm-sdk (default: `../ts-apple-fm-sdk`)
+- `FM_WRAP_PATH` — Path to fm-wrap (default: `../fm-wrap`)
 - `TAP_REPO` — Homebrew tap repository (default: `tariqwest/homebrew-tap`)
 - `TAP_DIR` — Local tap clone directory (default: `~/.cache/fm-server-tap`)
 

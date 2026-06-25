@@ -1,28 +1,31 @@
 #!/usr/bin/env node
 // ============================================================================
-// release.js — Publish workflow for fm-server
+// release.js — Release workflow for fm-server
 //
-// This script handles the "publish" half of the release process:
-//   1. Build the project
-//   2. Bundle prebuilt tarball (with vendored apple-fm-sdk)
-//   3. Create GitHub release + upload artifact (via gh CLI)
-//   4. Generate and publish Homebrew formula to tap
-//
-// Version bumping is handled separately via `pnpm version` (see package.json
-// "release" script). This script reads the version from package.json.
+// Bumps the version, builds, bundles, and publishes:
+//   1. Bump version in package.json (auto-detect or explicit)
+//   2. Build the project
+//   3. Bundle prebuilt tarball (with vendored apple-fm-sdk + fm-wrap)
+//   4. Create GitHub release + upload artifact (via gh CLI)
+//   5. Generate and publish Homebrew formula to tap
 //
 // Usage:
-//   node scripts/release.js [--dry-run] [--no-brew]
+//   node scripts/release.js [patch|minor|major|<version>] [--dry-run]
+//
+// Arguments:
+//   patch|minor|major   Explicit bump strategy
+//   x.y.z              Explicit version number
+//   (none)             Auto-detect from git history (defaults to minor)
 //
 // Flags:
-//   --dry-run   Skip actual operations (build, upload, tap push)
-//   --no-brew   Skip Homebrew tap publishing (GitHub release only)
+//   --dry-run   Skip actual operations (bump, build, upload, tap push)
 //
 // Prerequisites:
 //   gh auth login   — authenticate the GitHub CLI (used for releases + tap push)
 //
 // Environment variables:
 //   APPLE_FM_SDK_PATH - Path to ts-apple-fm-sdk checkout (default: ../ts-apple-fm-sdk)
+//   FM_WRAP_PATH - Path to fm-wrap checkout (default: ../fm-wrap)
 //   TAP_REPO - Homebrew tap repository (default: tariqwest/homebrew-tap)
 //   TAP_DIR - Local tap clone directory (default: ~/.cache/fm-server-tap)
 // ============================================================================
@@ -48,11 +51,10 @@ const __dirname = dirname(__filename);
 const ROOT_DIR = dirname(__dirname);
 
 const pkg = JSON.parse(readFileSync(join(ROOT_DIR, "package.json"), "utf-8"));
-const VERSION = pkg.version;
 
 const args = process.argv.slice(2);
 const DRY_RUN = args.includes("--dry-run");
-const NO_BREW = args.includes("--no-brew");
+const BUMP_ARG = args.find((a) => !a.startsWith("--"));
 
 const REPO = "tariqwest/fm-server";
 const APPLE_FM_SDK_PATH =
@@ -299,6 +301,44 @@ function publishToTap(version, formulaContent) {
   logInfo(`Published fm-server ${version} to ${TAP_REPO}`);
 }
 
+// -- Version bump --
+
+function detectBumpStrategy() {
+  const lastTag = execSilent("git describe --tags --abbrev=0 2>/dev/null");
+  const range = lastTag ? `${lastTag.trim()}..HEAD` : "HEAD~20..HEAD";
+  const log = execSilent(`git log ${range} --pretty=format:"%s%n%b"`) || "";
+
+  if (/BREAKING CHANGE|^.+!:/m.test(log)) return "major";
+  if (/^feat(\(.+\))?:/m.test(log)) return "minor";
+  return "minor";
+}
+
+function bumpVersion() {
+  const validBumps = ["patch", "minor", "major"];
+  let bump;
+
+  if (!BUMP_ARG) {
+    bump = detectBumpStrategy();
+    logInfo(`Auto-detected bump: ${bump}`);
+  } else if (validBumps.includes(BUMP_ARG)) {
+    bump = BUMP_ARG;
+    logInfo(`Explicit bump: ${bump}`);
+  } else if (/^\d+\.\d+\.\d+/.test(BUMP_ARG)) {
+    bump = BUMP_ARG;
+    logInfo(`Explicit version: ${bump}`);
+  } else {
+    throw new Error(
+      `Invalid bump argument: ${BUMP_ARG}\nUsage: node scripts/release.js [patch|minor|major|<version>] [--dry-run] [--no-brew]`,
+    );
+  }
+
+  logStep(`Running: pnpm version ${bump} --no-git-tag-version`);
+  const result = exec(`pnpm version ${bump} --no-git-tag-version`, { cwd: ROOT_DIR }).trim();
+  const version = result.replace(/^v/, "");
+  logInfo(`Version bumped to ${version}`);
+  return version;
+}
+
 // -- Main --
 
 async function main() {
@@ -307,9 +347,18 @@ async function main() {
     throw new Error("Not authenticated. Run: gh auth login");
   }
 
-  logInfo(`Publishing fm-server v${VERSION}`);
-
   if (DRY_RUN) logWarn("DRY RUN mode enabled");
+
+  // 0. Bump version
+  let VERSION;
+  if (DRY_RUN) {
+    VERSION = pkg.version;
+    logWarn(`DRY RUN: Skipping bump (using current version ${VERSION})`);
+  } else {
+    VERSION = bumpVersion();
+  }
+
+  logInfo(`Releasing fm-server v${VERSION}`);
 
   // 1. Build
   logStep("Building...");
@@ -372,12 +421,8 @@ async function main() {
   }
 
   // 4. Homebrew tap
-  if (NO_BREW) {
-    logWarn("Skipping Homebrew tap (--no-brew)");
-  } else {
-    const formulaContent = generateFormula(VERSION, sha256);
-    publishToTap(VERSION, formulaContent);
-  }
+  const formulaContent = generateFormula(VERSION, sha256);
+  publishToTap(VERSION, formulaContent);
 
   // Cleanup
   rmSync(tempDir, { recursive: true, force: true });
