@@ -57,6 +57,8 @@ const NO_BREW = args.includes("--no-brew");
 const REPO = "tariqwest/fm-server";
 const APPLE_FM_SDK_PATH =
   process.env.APPLE_FM_SDK_PATH || join(ROOT_DIR, "..", "ts-apple-fm-sdk");
+const FM_WRAP_PATH =
+  process.env.FM_WRAP_PATH || join(ROOT_DIR, "..", "fm-wrap");
 
 // -- Logging --
 
@@ -103,6 +105,17 @@ function resolveAppleFmSdkPath() {
   return APPLE_FM_SDK_PATH;
 }
 
+function resolveFmWrapPath() {
+  if (!existsSync(join(FM_WRAP_PATH, "package.json"))) {
+    throw new Error(
+      `fm-wrap not found at ${FM_WRAP_PATH}. ` +
+        "Clone https://github.com/tariqwest/fm-wrap alongside fm-server " +
+        "or set FM_WRAP_PATH.",
+    );
+  }
+  return FM_WRAP_PATH;
+}
+
 function ensureAppleFmSdkBuilt(sdkPath) {
   const needsNative = !existsSync(join(sdkPath, "build", "apple_fm_sdk_napi.node"));
   const needsJs = !existsSync(join(sdkPath, "dist", "index.js"));
@@ -117,6 +130,7 @@ function ensureAppleFmSdkBuilt(sdkPath) {
 
 function bundlePrebuiltPackage(deployDir, version) {
   const sdkPath = resolveAppleFmSdkPath();
+  const fmWrapPath = resolveFmWrapPath();
   ensureAppleFmSdkBuilt(sdkPath);
 
   if (existsSync(deployDir)) rmSync(deployDir, { recursive: true, force: true });
@@ -125,10 +139,18 @@ function bundlePrebuiltPackage(deployDir, version) {
   cpSync(join(ROOT_DIR, "dist"), join(deployDir, "dist"), { recursive: true });
   cpSync(join(ROOT_DIR, "bin"), join(deployDir, "bin"), { recursive: true });
 
+  // Vendor apple-fm-sdk (includes native .node binary)
   const vendorSdkDir = join(deployDir, "vendor", "apple-fm-sdk");
   mkdirSync(vendorSdkDir, { recursive: true });
   for (const item of ["dist", "build", "package.json"]) {
     cpSync(join(sdkPath, item), join(vendorSdkDir, item), { recursive: true });
+  }
+
+  // Vendor fm-wrap (pure JS)
+  const vendorFmWrapDir = join(deployDir, "vendor", "fm-wrap");
+  mkdirSync(vendorFmWrapDir, { recursive: true });
+  for (const item of ["dist", "package.json"]) {
+    cpSync(join(fmWrapPath, item), join(vendorFmWrapDir, item), { recursive: true });
   }
 
   const deployPkg = {
@@ -138,7 +160,8 @@ function bundlePrebuiltPackage(deployDir, version) {
     dependencies: Object.fromEntries(
       Object.entries(pkg.dependencies).map(([name, spec]) => [
         name,
-        name === "apple-fm-sdk" ? "file:./vendor/apple-fm-sdk" : spec,
+        name === "apple-fm-sdk" ? "file:./vendor/apple-fm-sdk" :
+        name === "fm-wrap" ? "file:./vendor/fm-wrap" : spec,
       ]),
     ),
   };
@@ -166,8 +189,22 @@ function generateFormula(version, sha256) {
     depends_on arch: :arm64
   end
 
+  # apple-fm-sdk ships a prebuilt dylib with @rpath install name;
+  # prevent Homebrew from rewriting it (which fails due to header size)
+  preserve_rpath
+
   def install
-    libexec.install "dist", "bin", "node_modules"
+    libexec.install "dist", "bin", "node_modules", "package.json"
+
+    # Clear dylib IDs on native addons so Homebrew skips relocation.
+    # These are dlopen'd by Node.js and don't need a dylib ID.
+    Dir.glob("#{libexec}/node_modules/**/*.dylib").each do |dylib|
+      next unless File.file?(dylib)
+      chmod 0644, dylib
+      system "install_name_tool", "-id", "", dylib
+      system "codesign", "--sign", "-", "--force", dylib
+      chmod 0444, dylib
+    end
 
     (bin/"fm-server").write <<~EOS
       #!/bin/bash
@@ -217,7 +254,9 @@ end
 
 function publishToTap(version, formulaContent) {
   const TAP_REPO = process.env.TAP_REPO || "tariqwest/homebrew-tap";
-  const TAP_DIR = process.env.TAP_DIR || join(process.env.HOME || "", ".cache/fm-server-tap");
+  const home = process.env.HOME || "";
+  const rawTapDir = process.env.TAP_DIR || "~/.cache/fm-server-tap";
+  const TAP_DIR = rawTapDir.startsWith("~") ? rawTapDir.replace("~", home) : rawTapDir;
 
   logStep(`Publishing formula to ${TAP_REPO}...`);
   if (DRY_RUN) { logWarn("DRY RUN: Skipping tap publishing"); return; }
@@ -238,14 +277,15 @@ function publishToTap(version, formulaContent) {
 
   writeFileSync(join(formulaDir, "fm-server.rb"), formulaContent);
 
-  // Check if there are actual changes
-  const diff = execSilent('git diff --quiet HEAD -- "Formula/fm-server.rb"', { cwd: TAP_DIR });
+  // Stage and check if there are actual changes
+  exec('git add "Formula/fm-server.rb"', { cwd: TAP_DIR });
+  const diff = execSilent("git diff --cached --quiet", { cwd: TAP_DIR });
   if (diff !== null) {
     logWarn("No changes detected in formula. Already up to date?");
+    exec("git reset HEAD -- .", { cwd: TAP_DIR });
     return;
   }
 
-  exec('git add "Formula/fm-server.rb"', { cwd: TAP_DIR });
   exec(`git commit -m "fm-server ${version}"`, { cwd: TAP_DIR });
   exec("git push", { cwd: TAP_DIR });
 
@@ -281,7 +321,7 @@ async function main() {
     const deployDir = join(tempDir, "fm-server-deploy");
     logStep("Bundling prebuilt package...");
     bundlePrebuiltPackage(deployDir, VERSION);
-    exec(`tar -czf "${tarballPath}" -C "${deployDir}" dist bin node_modules`, { cwd: ROOT_DIR });
+    exec(`tar -czf "${tarballPath}" -C "${deployDir}" dist bin node_modules package.json`, { cwd: ROOT_DIR });
   } else {
     logWarn("DRY RUN: Skipping bundle");
     writeFileSync(tarballPath, "dummy");
